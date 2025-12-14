@@ -1,0 +1,11 @@
+{
+  "generated_at_local": "2025-12-14T17:08:06",
+  "rows": 1984,
+  "columns": 77,
+  "files": {
+    "xlsx": "latest.xlsx",
+    "csv": "latest.csv",
+    "json": "latest.json",
+    "parquet": null
+  }
+}

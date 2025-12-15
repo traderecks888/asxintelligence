@@ -1,7 +1,10 @@
 {
-  "generated_at_local": "2025-12-14T17:08:06",
+  "generated_at_local": "2025-12-15T16:59:05",
   "rows": 1984,
-  "columns": 77,
+  "columns": 93,
+  "benchmark": "^AXJO",
+  "history_period": "1y",
+  "history_interval": "1d",
   "files": {
     "xlsx": "latest.xlsx",
     "csv": "latest.csv",

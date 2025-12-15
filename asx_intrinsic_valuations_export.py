@@ -33,6 +33,8 @@ import json
 import math
 import os
 import subprocess
+import zipfile
+import shutil
 import sys
 import time
 from dataclasses import dataclass
@@ -1023,6 +1025,25 @@ def main() -> None:
     public_dir = Path(args.public_dir).resolve()
     public_dir.mkdir(parents=True, exist_ok=True)
 
+    # Publish a "full" Excel download for humans (kept separate from the screener JSON)
+    # Cloudflare Pages has per-file size limits; if the workbook is large we publish a zipped copy instead.
+    FULL_XLSX_MAX_BYTES = 24 * 1024 * 1024  # keep a little buffer under 25 MiB
+    full_xlsx_name = None
+    full_xlsx_zip_name = None
+    try:
+        size_bytes = out_xlsx.stat().st_size
+        if size_bytes <= FULL_XLSX_MAX_BYTES:
+            full_target = public_dir / "latest_full.xlsx"
+            shutil.copy2(out_xlsx, full_target)
+            full_xlsx_name = "latest_full.xlsx"
+        else:
+            zip_target = public_dir / "latest_full.xlsx.zip"
+            with zipfile.ZipFile(zip_target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.write(out_xlsx, arcname="latest_full.xlsx")
+            full_xlsx_zip_name = "latest_full.xlsx.zip"
+    except Exception:
+        pass
+
     # Web-friendly subset (keeps latest.xlsx smaller for Cloudflare Pages)
     WEB_COLS = [
         "Ticker","Company","Sector","Industry",
@@ -1039,6 +1060,9 @@ def main() -> None:
         "As Of",
     ]
     web_df = df[[c for c in WEB_COLS if c in df.columns]].copy()
+
+    # Web JSON (smaller, used by screener UI)
+    web_df.to_json(public_dir / "latest_web.json", orient="records")
 
     latest_xlsx = public_dir / "latest.xlsx"
     with pd.ExcelWriter(latest_xlsx, engine="openpyxl") as writer2:

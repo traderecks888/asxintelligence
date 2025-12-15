@@ -1,49 +1,29 @@
 #!/usr/bin/env python3
 """
-ASX Intrinsic Valuations Export → Excel
-======================================
+ASX Intrinsic Valuations + Technicals → Excel/CSV/JSON (+ optional Parquet)
+=========================================================================
 
-What it does
-- Builds/refreshes the full ASX universe once per month (default) using your existing universe scraper.
-- Pulls Yahoo Finance (via yfinance) fundamentals for each ticker.
-- Computes the intrinsic value methods from your Core Enhanced Valuations file:
-    - DCF (5yr)
-    - Residual Income
-    - Asset Based (NTA)
-    - SOTP (DCF minus discount)
-    - Dividend Discount
-    - Earnings Power Value (EPV)
-    - Reverse DCF (implied growth)
-    - Option Pricing (Black-Scholes ATM call proxy)
-- Adds book value (total) + book value per share (both Yahoo and balance-sheet-derived).
-- Adds a handful of quant-friendly fields (FCF yield, leverage ratios, margin metrics, etc.)
-- Writes a single .xlsx with:
-    - Valuations (main sheet)
-    - Assumptions (global model parameters)
-    - Valuation Formulas (method notes)
+Outputs
+- Full workbook (timestamped) under data/valuations/ASX_Intrinsic_Valuations_YYYYMMDD_HHMMSS.xlsx
+- Web-friendly artifacts under --public_dir (default public/data):
+    - latest.xlsx   (subset of columns for Cloudflare Pages)
+    - latest.csv
+    - latest.json
+    - latest.parquet (optional if pyarrow/fastparquet installed)
+    - manifest.json
 
-Expected folder layout (recommended)
-.
-├─ asx_intrinsic_valuations_export.py        (this file)
-├─ scrape_asx_universe.py                   (your scraper)
-├─ scrape_asx_materials_energy.py           (optional, for products/stage enrichment)
-└─ data/
-   ├─ universe/asx_universe.csv
-   ├─ roster/asx_materials_energy_companies.csv   (optional)
-   └─ valuations/ASX_Intrinsic_Valuations_YYYYMMDD_HHMMSS.xlsx
+Universe refresh
+- Uses scrape_asx_universe.py and only refreshes if older than --universe_max_age_days (default 30)
 
-Install deps
-    pip install pandas yfinance openpyxl numpy requests beautifulsoup4 lxml
+Data sources
+- Fundamentals: Yahoo Finance via yfinance (best effort)
+- Technicals: 1y daily bars via yfinance history
 
-Run (default paths)
-    python asx_intrinsic_valuations_export.py
+Run
+    python asx_intrinsic_valuations_export.py --resume
 
-Run (fast dev test)
+Fast test
     python asx_intrinsic_valuations_export.py --limit 50 --sleep 0.15
-
-Notes
-- Yahoo/yfinance is a best-effort data source. Many fields will be missing for some tickers.
-- 2000+ tickers can take a while. Use --resume so you can stop/restart without losing progress.
 """
 
 from __future__ import annotations
@@ -58,7 +38,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -69,7 +49,7 @@ from openpyxl.utils import get_column_letter
 
 
 # --------------------------------------------------------------------------------------
-# Global valuation assumptions (copied from your Core-EnhancedValuationsv5.3.py)
+# Global valuation assumptions (aligned to your Core-EnhancedValuationsv5.3.py)
 # --------------------------------------------------------------------------------------
 
 ASSUMPTIONS: Dict[str, float] = {
@@ -90,16 +70,12 @@ DEFAULT_GROWTH_FALLBACK = 0.05  # used if revenueGrowth is missing
 
 
 # --------------------------------------------------------------------------------------
-# Excel formatting (lightweight, fast)
+# Excel formatting
 # --------------------------------------------------------------------------------------
 
 HEADER_FILL = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 
-
-# --------------------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------------------
 
 def now_stamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -125,10 +101,10 @@ def parse_iso(dt_str: str) -> Optional[datetime]:
 
 
 def is_csv_fresh(csv_path: Path, max_age_days: int) -> bool:
-    """Mirror the 'freshness' logic your scrape_asx_universe.py uses (last_extracted, else mtime)."""
     if not csv_path.exists():
         return False
 
+    # Check last_extracted column if present (mirrors your scraper style)
     try:
         df = pd.read_csv(csv_path)
         if "last_extracted" in df.columns and not df.empty:
@@ -150,7 +126,6 @@ def is_csv_fresh(csv_path: Path, max_age_days: int) -> bool:
 
 
 def run_universe_scraper(scraper_path: Path, output_csv: Path, tickers_txt: Optional[Path], max_age_days: int, source: str, sleep_s: float) -> None:
-    """Run your scrape_asx_universe.py as a subprocess."""
     cmd = [
         sys.executable,
         str(scraper_path),
@@ -161,14 +136,11 @@ def run_universe_scraper(scraper_path: Path, output_csv: Path, tickers_txt: Opti
     ]
     if tickers_txt is not None:
         cmd += ["--tickers_txt", str(tickers_txt)]
-
-    # Intentionally DO NOT pass --force by default: your scraper already re-scrapes when stale.
     print("[info] universe scraper:", " ".join(cmd))
     subprocess.check_call(cmd)
 
 
 def maybe_refresh_universe(scraper_path: Path, universe_csv: Path, tickers_txt: Optional[Path], max_age_days: int, source: str, sleep_s: float) -> None:
-    """Refresh the universe CSV only if missing or older than max_age_days."""
     if is_csv_fresh(universe_csv, max_age_days=max_age_days):
         print(f"[skip] universe CSV looks fresh (<= {max_age_days} days): {universe_csv}")
         return
@@ -190,7 +162,6 @@ def norm_cdf(x: float) -> float:
 
 
 def black_scholes_call(S: float, K: float, T: float, r: float, sigma: float) -> float:
-    """Black-Scholes call option pricing model."""
     if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
         return float("nan")
     d1 = (math.log(S / K) + (r + (sigma ** 2) / 2.0) * T) / (sigma * math.sqrt(T))
@@ -199,18 +170,16 @@ def black_scholes_call(S: float, K: float, T: float, r: float, sigma: float) -> 
 
 
 def try_get_info(t: yf.Ticker) -> Dict[str, Any]:
-    """yfinance changed APIs over time; be conservative."""
     try:
-        return t.get_info()  # new-style
+        return t.get_info()
     except Exception:
         try:
-            return t.info  # legacy
+            return t.info
         except Exception:
             return {}
 
 
 def get_balance_sheet_items(t: yf.Ticker) -> Dict[str, float]:
-    """Pull a small set of balance sheet items (quarterly first, then annual)."""
     out = {
         "cash": np.nan,
         "total_assets": np.nan,
@@ -226,7 +195,6 @@ def get_balance_sheet_items(t: yf.Ticker) -> Dict[str, float]:
             if idx is None:
                 return False
 
-            # Cash
             for item in ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"]:
                 if item in idx:
                     out["cash"] = float(sheet.loc[item].iloc[0])
@@ -249,7 +217,6 @@ def get_balance_sheet_items(t: yf.Ticker) -> Dict[str, float]:
         except Exception:
             return False
 
-    # Prefer quarterly
     if _probe(getattr(t, "quarterly_balance_sheet", None)):
         return out
     _probe(getattr(t, "balance_sheet", None))
@@ -257,18 +224,14 @@ def get_balance_sheet_items(t: yf.Ticker) -> Dict[str, float]:
 
 
 def clip_growth(g: float) -> float:
-    """Guardrail: Yahoo growth series can be wild or NaN."""
     if np.isnan(g):
         return DEFAULT_GROWTH_FALLBACK
-    # Clamp to a sensible-ish band for a quick-and-dirty DCF
     return float(max(-0.10, min(0.25, g)))
 
 
 def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Compute valuation methods (mirrors your Core Enhanced Valuations logic)."""
     res: Dict[str, Any] = {}
 
-    # Inputs
     fcf = float(safe_get(row, "freeCashflow", 0.0) or 0.0)
     growth_raw = safe_get(row, "revenueGrowth", np.nan)
     growth = clip_growth(float(growth_raw) if not np.isnan(growth_raw) else np.nan)
@@ -281,8 +244,7 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     cash = float(cash) if not np.isnan(cash) else 0.0
 
     shares_out = safe_get(row, "sharesOutstanding", np.nan)
-    if np.isnan(shares_out) or shares_out <= 0:
-        shares_out = np.nan
+    shares_out = float(shares_out) if not np.isnan(shares_out) else np.nan
 
     current_price = safe_get(row, "currentPrice", np.nan)
     current_price = float(current_price) if not np.isnan(current_price) else np.nan
@@ -314,7 +276,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     earnings_growth = safe_get(row, "earningsGrowth", np.nan)
     earnings_growth = float(earnings_growth) if not np.isnan(earnings_growth) else np.nan
 
-    # Global rates
     rf = float(ASSUMPTIONS["risk_free_rate"])
     mrp = float(ASSUMPTIONS["market_risk_premium"])
     tgr = float(ASSUMPTIONS["terminal_growth_rate"])
@@ -322,13 +283,12 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     tax = float(ASSUMPTIONS["tax_rate"])
 
     cost_of_equity = rf + beta * mrp
-    wacc = cost_of_equity  # equity-only version like your core file
+    wacc = cost_of_equity
 
     res["growth_input_used"] = growth
     res["cost_of_equity"] = cost_of_equity
     res["wacc"] = wacc
 
-    # DCF
     dcf_price = np.nan
     enterprise_value = np.nan
     equity_value = np.nan
@@ -338,7 +298,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     if not np.isnan(shares_out) and shares_out > 0:
         try:
             projected_fcf = [fcf * ((1.0 + growth) ** y) for y in range(1, years + 1)]
-            # Guard: wacc - tgr must be > 0
             denom = max(0.01, (wacc - tgr))
             terminal_value = (projected_fcf[-1] * (1.0 + tgr)) / denom
 
@@ -348,7 +307,7 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
             enterprise_value = float(sum(discounted_cf) + discounted_tv)
             net_debt = float(total_debt - cash)
             equity_value = float(enterprise_value - net_debt)
-            dcf_price = float(equity_value / shares_out) if shares_out else np.nan
+            dcf_price = float(equity_value / shares_out)
 
             if not np.isnan(current_price) and not np.isnan(dcf_price):
                 dcf_estimate = "Undervalued" if dcf_price > current_price else "Overvalued"
@@ -363,7 +322,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         "dcf_estimate": dcf_estimate,
     })
 
-    # Dividend Discount Model
     ddm_price = np.nan
     payout_ratio = np.nan
     try:
@@ -375,13 +333,8 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
-    res.update({
-        "ddm_price": ddm_price,
-        "dividend_yield": dividend_yield,
-        "payout_ratio": payout_ratio,
-    })
+    res.update({"ddm_price": ddm_price, "dividend_yield": dividend_yield, "payout_ratio": payout_ratio})
 
-    # Earnings Power Value (EPV)
     epv_price = np.nan
     normalized_earnings = np.nan
     epv_ebit_multiple = np.nan
@@ -396,13 +349,8 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
-    res.update({
-        "epv_price": epv_price,
-        "normalized_earnings": normalized_earnings,
-        "epv_ebit_multiple": epv_ebit_multiple,
-    })
+    res.update({"epv_price": epv_price, "normalized_earnings": normalized_earnings, "epv_ebit_multiple": epv_ebit_multiple})
 
-    # Residual Income
     ri_price = np.nan
     try:
         if not np.isnan(book_value_ps_yahoo) and not np.isnan(roe):
@@ -412,7 +360,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         pass
     res["residual_income_price"] = ri_price
 
-    # Asset Based (NTA)
     asset_price = np.nan
     try:
         nta = safe_get(row, "net_tangible_assets", np.nan)
@@ -422,7 +369,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         pass
     res["asset_based_price"] = asset_price
 
-    # SOTP (discount to DCF)
     sotp_price = np.nan
     try:
         if not np.isnan(dcf_price):
@@ -431,13 +377,11 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         pass
     res["sotp_price"] = sotp_price
 
-    # Reverse DCF (implied growth)
     implied_g = np.nan
     try:
         if not np.isnan(current_price) and current_price > 0 and not np.isnan(shares_out) and shares_out > 0 and fcf > 0:
             target_equity = current_price * shares_out
             target_ev = target_equity + total_debt - cash
-
             low, high = -0.10, 0.20
             tolerance = 0.001
 
@@ -461,7 +405,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         pass
     res["reverse_dcf_implied_growth"] = implied_g
 
-    # Option Pricing proxy (ATM 5y call)
     opt_value = np.nan
     strike = np.nan
     try:
@@ -476,13 +419,8 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
             ))
     except Exception:
         pass
-    res.update({
-        "option_value": opt_value,
-        "option_strike": strike,
-        "option_volatility": float(ASSUMPTIONS["volatility"]),
-    })
+    res.update({"option_value": opt_value, "option_strike": strike, "option_volatility": float(ASSUMPTIONS["volatility"])})
 
-    # PEG Ratio
     peg = np.nan
     try:
         trailing_pe = safe_get(row, "trailingPE", np.nan)
@@ -492,7 +430,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         pass
     res["peg_ratio"] = peg
 
-    # Premium/discounts
     def _prem(v: float) -> float:
         if np.isnan(current_price) or current_price <= 0 or np.isnan(v):
             return np.nan
@@ -510,7 +447,6 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
         "mos_buy_price": float(dcf_price * (1.0 - float(ASSUMPTIONS["margin_of_safety"]))) if not np.isnan(dcf_price) else np.nan,
     })
 
-    # "Undervalued Methods Count" like your core file
     prem_cols = ["dcf_prem", "ri_prem", "asset_prem", "sotp_prem", "ddm_prem"]
     res["undervalued_methods_count"] = int(sum(1 for c in prem_cols if not np.isnan(res.get(c, np.nan)) and float(res[c]) > 0))
 
@@ -518,48 +454,30 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def compute_extra_metrics(info: Dict[str, Any], bs: Dict[str, float], shares_out: float) -> Dict[str, Any]:
-    """Add a few practical value/quality/leverage fields."""
     out: Dict[str, Any] = {}
+
     market_cap = safe_get(info, "marketCap", np.nan)
-    enterprise_value = safe_get(info, "enterpriseValue", np.nan)
-
     fcf = safe_get(info, "freeCashflow", np.nan)
-    if not np.isnan(market_cap) and market_cap and not np.isnan(fcf):
-        out["fcf_yield"] = float(fcf) / float(market_cap)
-    else:
-        out["fcf_yield"] = np.nan
+    out["fcf_yield"] = (float(fcf) / float(market_cap)) if (not np.isnan(market_cap) and market_cap and not np.isnan(fcf)) else np.nan
 
-    # Book value total + per share (two ways)
     book_ps = safe_get(info, "bookValue", np.nan)  # Yahoo "bookValue" is per share
     out["book_value_per_share_yahoo"] = float(book_ps) if not np.isnan(book_ps) else np.nan
-    if not np.isnan(book_ps) and not np.isnan(shares_out) and shares_out > 0:
-        out["book_value_total_yahoo"] = float(book_ps) * float(shares_out)
-    else:
-        out["book_value_total_yahoo"] = np.nan
+    out["book_value_total_yahoo"] = (float(book_ps) * float(shares_out)) if (not np.isnan(book_ps) and not np.isnan(shares_out) and shares_out > 0) else np.nan
 
     equity_bs = np.nan
     if not np.isnan(bs.get("total_assets", np.nan)) and not np.isnan(bs.get("total_liabilities", np.nan)):
         equity_bs = float(bs["total_assets"]) - float(bs["total_liabilities"])
     out["book_value_total_bs_equity"] = equity_bs
-    if not np.isnan(equity_bs) and not np.isnan(shares_out) and shares_out > 0:
-        out["book_value_per_share_bs_equity"] = float(equity_bs) / float(shares_out)
-    else:
-        out["book_value_per_share_bs_equity"] = np.nan
+    out["book_value_per_share_bs_equity"] = (float(equity_bs) / float(shares_out)) if (not np.isnan(equity_bs) and not np.isnan(shares_out) and shares_out > 0) else np.nan
 
-    # NTA per share
     nta = bs.get("net_tangible_assets", np.nan)
     out["nta_total"] = float(nta) if not np.isnan(nta) else np.nan
-    if not np.isnan(nta) and not np.isnan(shares_out) and shares_out > 0:
-        out["nta_per_share"] = float(nta) / float(shares_out)
-    else:
-        out["nta_per_share"] = np.nan
+    out["nta_per_share"] = (float(nta) / float(shares_out)) if (not np.isnan(nta) and not np.isnan(shares_out) and shares_out > 0) else np.nan
 
-    # Leverage ratios (as provided by Yahoo, if present)
     out["debt_to_equity"] = safe_get(info, "debtToEquity", np.nan)
     out["current_ratio"] = safe_get(info, "currentRatio", np.nan)
     out["quick_ratio"] = safe_get(info, "quickRatio", np.nan)
 
-    # Margins (quality)
     out["gross_margin"] = safe_get(info, "grossMargins", np.nan)
     out["operating_margin"] = safe_get(info, "operatingMargins", np.nan)
     out["profit_margin"] = safe_get(info, "profitMargins", np.nan)
@@ -567,31 +485,22 @@ def compute_extra_metrics(info: Dict[str, Any], bs: Dict[str, float], shares_out
     out["roa"] = safe_get(info, "returnOnAssets", np.nan)
     out["roe"] = safe_get(info, "returnOnEquity", np.nan)
 
-    # Common value multiples
     out["trailing_pe"] = safe_get(info, "trailingPE", np.nan)
     out["forward_pe"] = safe_get(info, "forwardPE", np.nan)
     out["price_to_book"] = safe_get(info, "priceToBook", np.nan)
     out["ev_to_ebitda"] = safe_get(info, "enterpriseToEbitda", np.nan)
 
-    # Optionality: leverage vs EBITDA
     total_debt = safe_get(info, "totalDebt", np.nan)
     cash = bs.get("cash", np.nan)
     ebitda = safe_get(info, "ebitda", np.nan)
-    if not np.isnan(total_debt) and not np.isnan(cash):
-        out["net_debt_calc"] = float(total_debt) - float(cash)
-    else:
-        out["net_debt_calc"] = np.nan
-    if not np.isnan(out["net_debt_calc"]) and not np.isnan(ebitda) and ebitda and float(ebitda) != 0:
-        out["net_debt_to_ebitda"] = float(out["net_debt_calc"]) / float(ebitda)
-    else:
-        out["net_debt_to_ebitda"] = np.nan
+    out["net_debt_calc"] = (float(total_debt) - float(cash)) if (not np.isnan(total_debt) and not np.isnan(cash)) else np.nan
+    out["net_debt_to_ebitda"] = (float(out["net_debt_calc"]) / float(ebitda)) if (not np.isnan(out["net_debt_calc"]) and not np.isnan(ebitda) and ebitda) else np.nan
 
-    # Ownership / short interest (if present)
     out["held_pct_insiders"] = safe_get(info, "heldPercentInsiders", np.nan)
     out["held_pct_institutions"] = safe_get(info, "heldPercentInstitutions", np.nan)
     out["short_pct_float"] = safe_get(info, "shortPercentOfFloat", np.nan)
 
-    # Prefer EV from Yahoo if present; else compute
+    enterprise_value = safe_get(info, "enterpriseValue", np.nan)
     if np.isnan(enterprise_value) and not np.isnan(market_cap):
         out["enterprise_value_yahoo_or_calc"] = float(market_cap) + (float(total_debt) if not np.isnan(total_debt) else 0.0) - (float(cash) if not np.isnan(cash) else 0.0)
     else:
@@ -600,111 +509,157 @@ def compute_extra_metrics(info: Dict[str, Any], bs: Dict[str, float], shares_out
     return out
 
 
+def _rsi(close: pd.Series, period: int = 14) -> float:
+    if close is None or len(close) < period + 2:
+        return float("nan")
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    # Wilder's smoothing via EMA with alpha=1/period
+    avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    return float(rsi.iloc[-1])
+
+
+def _atr(df: pd.DataFrame, period: int = 14) -> float:
+    if df is None or df.empty or len(df) < period + 2:
+        return float("nan")
+    high = df["High"].astype(float)
+    low = df["Low"].astype(float)
+    close = df["Close"].astype(float)
+
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+
+    atr = tr.ewm(alpha=1/period, adjust=False).mean()
+    return float(atr.iloc[-1])
+
+
+def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] = None) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "Return 1m": np.nan,
+        "Return 3m": np.nan,
+        "Return 6m": np.nan,
+        "Return 12m": np.nan,
+        "SMA20": np.nan,
+        "SMA50": np.nan,
+        "SMA200": np.nan,
+        "% from SMA20": np.nan,
+        "% from SMA50": np.nan,
+        "% from SMA200": np.nan,
+        "52W High": np.nan,
+        "52W Low": np.nan,
+        "% From 52W High": np.nan,
+        "% From 52W Low": np.nan,
+        "RSI14": np.nan,
+        "ATR (14)": np.nan,
+        "ATR% (14)": np.nan,
+        "Vol (20d, ann)": np.nan,
+        "Vol (60d, ann)": np.nan,
+        "Max Drawdown (1y)": np.nan,
+        "Avg Vol 20d": np.nan,
+        "Avg $Vol 20d": np.nan,
+        "Beta vs Benchmark (1y)": np.nan,
+    }
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return out
+
+    df = hist.dropna(subset=["Close"]).copy()
+    close = df["Close"].astype(float)
+
+    # Returns
+    def _ret(n: int) -> float:
+        if len(close) <= n:
+            return float("nan")
+        return float(close.iloc[-1] / close.iloc[-(n+1)] - 1.0)
+
+    out["Return 1m"] = _ret(21)
+    out["Return 3m"] = _ret(63)
+    out["Return 6m"] = _ret(126)
+    out["Return 12m"] = _ret(252)
+
+    # Moving averages
+    sma20 = close.rolling(20).mean()
+    sma50 = close.rolling(50).mean()
+    sma200 = close.rolling(200).mean()
+    out["SMA20"] = float(sma20.iloc[-1]) if len(sma20.dropna()) else float("nan")
+    out["SMA50"] = float(sma50.iloc[-1]) if len(sma50.dropna()) else float("nan")
+    out["SMA200"] = float(sma200.iloc[-1]) if len(sma200.dropna()) else float("nan")
+
+    px = float(close.iloc[-1])
+    out["% from SMA20"] = float(px / out["SMA20"] - 1.0) if np.isfinite(out["SMA20"]) and out["SMA20"] > 0 else np.nan
+    out["% from SMA50"] = float(px / out["SMA50"] - 1.0) if np.isfinite(out["SMA50"]) and out["SMA50"] > 0 else np.nan
+    out["% from SMA200"] = float(px / out["SMA200"] - 1.0) if np.isfinite(out["SMA200"]) and out["SMA200"] > 0 else np.nan
+
+    # 52-week high/low (use High/Low if available else Close)
+    if "High" in df.columns and "Low" in df.columns:
+        out["52W High"] = float(df["High"].astype(float).max())
+        out["52W Low"] = float(df["Low"].astype(float).min())
+    else:
+        out["52W High"] = float(close.max())
+        out["52W Low"] = float(close.min())
+
+    out["% From 52W High"] = float(px / out["52W High"] - 1.0) if np.isfinite(out["52W High"]) and out["52W High"] > 0 else np.nan
+    out["% From 52W Low"] = float(px / out["52W Low"] - 1.0) if np.isfinite(out["52W Low"]) and out["52W Low"] > 0 else np.nan
+
+    # RSI, ATR
+    out["RSI14"] = _rsi(close, 14)
+    atr14 = _atr(df, 14)
+    out["ATR (14)"] = atr14
+    out["ATR% (14)"] = float(atr14 / px) if np.isfinite(atr14) and px > 0 else np.nan
+
+    # Volatility
+    rets = close.pct_change().dropna()
+    if len(rets) >= 20:
+        out["Vol (20d, ann)"] = float(rets.tail(20).std(ddof=0) * math.sqrt(252))
+    if len(rets) >= 60:
+        out["Vol (60d, ann)"] = float(rets.tail(60).std(ddof=0) * math.sqrt(252))
+
+    # Max drawdown
+    if len(close) >= 2:
+        cum = (1 + rets).fillna(0).add(1).cumprod()
+        peak = cum.cummax()
+        dd = (cum / peak) - 1.0
+        out["Max Drawdown (1y)"] = float(dd.min())
+
+    # Liquidity
+    if "Volume" in df.columns:
+        vol = df["Volume"].astype(float).dropna()
+        if len(vol) >= 20:
+            out["Avg Vol 20d"] = float(vol.tail(20).mean())
+            out["Avg $Vol 20d"] = float(out["Avg Vol 20d"] * close.tail(20).mean())
+
+    # Beta vs benchmark
+    if benchmark_rets is not None and len(rets) > 30:
+        joined = pd.concat([rets.rename("stock"), benchmark_rets.rename("bench")], axis=1).dropna()
+        if len(joined) > 30 and joined["bench"].var(ddof=0) > 0:
+            cov = joined.cov(ddof=0).loc["stock", "bench"]
+            out["Beta vs Benchmark (1y)"] = float(cov / joined["bench"].var(ddof=0))
+
+    return out
+
+
 def format_sheet(ws) -> None:
     ws.freeze_panes = "B2"
     ws.auto_filter.ref = ws.dimensions
-
-    # Header style
     for cell in ws[1]:
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    # Column widths (cap to keep Excel snappy)
-    for col_idx, col in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
+    for col_idx in range(1, ws.max_column + 1):
         header = ws.cell(row=1, column=col_idx).value
         width = min(28, max(10, len(str(header)) + 2))
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
-
-def build_formulas_sheet(writer: pd.ExcelWriter) -> None:
-    """Same idea as Core-EnhancedValuations: a human-readable sheet."""
-    formulas = {
-        "DCF Valuation": [
-            "1. Project Free Cash Flows for N years",
-            "2. Calculate Terminal Value (Gordon growth)",
-            "3. Discount all cash flows at WACC (here: Cost of Equity)",
-            "4. Convert EV → equity → per-share",
-            "Assumptions:",
-            f"Risk Free Rate: {ASSUMPTIONS['risk_free_rate']*100:.2f}%",
-            f"Market Risk Premium: {ASSUMPTIONS['market_risk_premium']*100:.2f}%",
-            f"Terminal Growth: {ASSUMPTIONS['terminal_growth_rate']*100:.2f}%",
-            f"Valuation Period: {ASSUMPTIONS['valuation_period']} years",
-        ],
-        "Dividend Discount Model": [
-            "Price = Dividend / (Cost of Equity - Dividend Growth)",
-            f"Dividend Growth: {ASSUMPTIONS['dividend_growth_rate']*100:.2f}%",
-            "Dividend = dividendRate (Yahoo) if available",
-        ],
-        "Residual Income Model": [
-            "Price = Book Value per Share + Residual Income / (1 + Cost of Equity)",
-            "Residual Income = BVPS * (ROE - Cost of Equity)",
-        ],
-        "Asset Based (NTA)": [
-            "Price = (Net Tangible Assets * (1 + Asset Premium)) / Shares Outstanding",
-            f"Asset Premium: {ASSUMPTIONS['asset_premium']*100:.2f}%",
-        ],
-        "SOTP": [
-            "SOTP Price = DCF Price * (1 - SOTP Discount)",
-            f"SOTP Discount: {ASSUMPTIONS['sotp_discount']*100:.2f}%",
-        ],
-        "Earnings Power Value (EPV)": [
-            "Normalized Earnings = Revenue * Operating Margin * (1 - Tax Rate)",
-            f"Tax Rate: {ASSUMPTIONS['tax_rate']*100:.2f}%",
-            "EPV = Normalized Earnings / Cost of Equity",
-            "EPV Price = (EPV + Cash - Debt) / Shares Outstanding",
-        ],
-        "Reverse DCF": [
-            "Solves for the growth rate that makes DCF EV ≈ current market EV",
-            "Binary search between -10% and +20% growth",
-        ],
-        "Option Pricing": [
-            "Black-Scholes: 5y at-the-money call (proxy for 'optionality')",
-            f"Volatility: {ASSUMPTIONS['volatility']*100:.2f}%",
-            f"Option Years: {ASSUMPTIONS['option_years']}",
-        ],
-        "Margin of Safety": [
-            f"MOS Buy Price = DCF Price * (1 - {ASSUMPTIONS['margin_of_safety']*100:.2f}%)",
-        ],
-    }
-
-    max_len = max(len(v) for v in formulas.values())
-    for k in formulas:
-        formulas[k] += [""] * (max_len - len(formulas[k]))
-
-    df = pd.DataFrame(formulas)
-    df.to_excel(writer, sheet_name="Valuation Formulas", index=False)
-    ws = writer.book["Valuation Formulas"]
-    ws.freeze_panes = "A2"
-    for cell in ws[1]:
-        cell.fill = HEADER_FILL
-        cell.font = HEADER_FONT
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    for col in ws.columns:
-        ws.column_dimensions[get_column_letter(col[0].column)].width = 38
-        for cell in col:
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-
-
-def write_assumptions_sheet(writer: pd.ExcelWriter) -> None:
-    df = pd.DataFrame(
-        [{"parameter": k, "value": v} for k, v in ASSUMPTIONS.items()]
-        + [{"parameter": "growth_fallback_if_missing", "value": DEFAULT_GROWTH_FALLBACK}]
-    )
-    df.to_excel(writer, sheet_name="Assumptions", index=False)
-    ws = writer.book["Assumptions"]
-    ws.freeze_panes = "A2"
-    for cell in ws[1]:
-        cell.fill = HEADER_FILL
-        cell.font = HEADER_FONT
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.column_dimensions["A"].width = 34
-    ws.column_dimensions["B"].width = 18
-
-
-# --------------------------------------------------------------------------------------
-# Main run
-# --------------------------------------------------------------------------------------
 
 @dataclass
 class UniverseRow:
@@ -712,13 +667,10 @@ class UniverseRow:
     name: str = ""
     sector: str = ""
     industry: str = ""
-    market_cap: Optional[float] = None
 
 
 def load_universe(universe_csv: Path) -> List[UniverseRow]:
     df = pd.read_csv(universe_csv)
-
-    # Accept a couple of common column spellings
     col_ticker = "ticker" if "ticker" in df.columns else ("Code" if "Code" in df.columns else None)
     if col_ticker is None:
         raise ValueError(f"Universe CSV is missing a ticker column: {universe_csv}")
@@ -736,13 +688,11 @@ def load_universe(universe_csv: Path) -> List[UniverseRow]:
             name=str(r[_col("name")]) if _col("name") else str(r.get("Company name", "")),
             sector=str(r[_col("sector")]) if _col("sector") else str(r.get("GICS industry group", "")),
             industry=str(r[_col("industry")]) if _col("industry") else str(r.get("Industry group", "")),
-            market_cap=float(r["market_cap"]) if "market_cap" in df.columns and str(r.get("market_cap", "")).strip() not in ["", "nan", "None"] else None,
         ))
     return rows
 
 
 def maybe_load_materials_energy(roster_csv: Path) -> Optional[pd.DataFrame]:
-    """Optional join: products/stage columns from scrape_asx_materials_energy.py output."""
     if not roster_csv.exists():
         return None
     try:
@@ -750,14 +700,40 @@ def maybe_load_materials_energy(roster_csv: Path) -> Optional[pd.DataFrame]:
         if "ticker" not in df.columns:
             return None
         df["ticker"] = df["ticker"].astype(str).map(normalize_ticker)
-        # Keep only the useful columns
         keep = [c for c in ["ticker", "products", "stage"] if c in df.columns]
         return df[keep].drop_duplicates("ticker")
     except Exception:
         return None
 
 
-def fetch_one(ticker_code: str, company: UniverseRow) -> Optional[Dict[str, Any]]:
+def fetch_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+    t = yf.Ticker(symbol)
+    try:
+        h = t.history(period=period, interval=interval, auto_adjust=True)
+        return h if isinstance(h, pd.DataFrame) else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def data_quality_score(r: Dict[str, Any]) -> float:
+    keys = [
+        "Price", "Market Cap", "Shares Out", "FCF (Yahoo)",
+        "Revenue Growth (Yahoo)", "Beta", "Book Value / Share (Yahoo)",
+        "Total Debt", "Cash", "ROE", "DCF Price (5yr)",
+        "Vol (20d, ann)", "Avg $Vol 20d",
+    ]
+    ok = 0
+    for k in keys:
+        v = r.get(k, np.nan)
+        if v is None:
+            continue
+        if isinstance(v, (int, float)) and np.isnan(v):
+            continue
+        ok += 1
+    return float(ok / len(keys))
+
+
+def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[pd.Series], history_period: str, history_interval: str, disable_technicals: bool) -> Optional[Dict[str, Any]]:
     sym = yahoo_symbol(ticker_code)
     t = yf.Ticker(sym)
     info = try_get_info(t)
@@ -773,15 +749,13 @@ def fetch_one(ticker_code: str, company: UniverseRow) -> Optional[Dict[str, Any]
     if (np.isnan(shares_out) or shares_out <= 0) and not np.isnan(market_cap) and not np.isnan(current_price) and current_price:
         shares_out = float(market_cap) / float(current_price)
 
-    # Base row
-    row: Dict[str, Any] = {
+    base: Dict[str, Any] = {
         "ticker": ticker_code,
         "company_name": company.name or safe_get(info, "shortName", ""),
         "sector": company.sector,
         "industry": company.industry,
         "currency": safe_get(info, "currency", "AUD"),
         "asof": datetime.now().strftime("%Y-%m-%d"),
-        # Yahoo raw keys we care about
         "currentPrice": current_price,
         "marketCap": market_cap,
         "sharesOutstanding": shares_out,
@@ -801,140 +775,145 @@ def fetch_one(ticker_code: str, company: UniverseRow) -> Optional[Dict[str, Any]
         "totalRevenue": safe_get(info, "totalRevenue", np.nan),
         "ebitda": safe_get(info, "ebitda", np.nan),
         "operatingMargins": safe_get(info, "operatingMargins", np.nan),
-        # Balance-sheet derived
         "cash": bs["cash"],
         "total_assets": bs["total_assets"],
         "total_liabilities": bs["total_liabilities"],
         "net_tangible_assets": bs["net_tangible_assets"],
     }
 
-    # Valuations
-    val = calc_valuations(row)
-    row.update(val)
+    base.update(calc_valuations(base))
+    extras = compute_extra_metrics(info, bs, float(base["sharesOutstanding"]) if not np.isnan(base["sharesOutstanding"]) else np.nan)
+    base.update(extras)
 
-    # Extra metrics (book totals, yields, leverage ratios, etc.)
-    extras = compute_extra_metrics(info, bs, float(row["sharesOutstanding"]) if not np.isnan(row["sharesOutstanding"]) else np.nan)
-    row.update(extras)
+    # Technicals (1y daily)
+    tech: Dict[str, Any] = {}
+    if not disable_technicals:
+        hist = fetch_history(sym, history_period, history_interval)
+        tech = compute_technicals(hist, benchmark_rets=benchmark_rets)
+    else:
+        tech = compute_technicals(pd.DataFrame(), benchmark_rets=None)
 
-    # Friendly rename for output columns
-    out_row = {
-        "Ticker": row["ticker"],
-        "Company": row["company_name"],
-        "Sector": row["sector"],
-        "Industry": row["industry"],
-        "Currency": row["currency"],
-        "As Of": row["asof"],
-        "Price": row["currentPrice"],
-        "Market Cap": row["marketCap"],
-        "Shares Out": row["sharesOutstanding"],
-        "Cash": row["cash"],
-        "Total Debt": row["totalDebt"],
-        "Net Debt (Debt - Cash)": row.get("net_debt", np.nan),
-        "Total Assets": row["total_assets"],
-        "Total Liabilities": row["total_liabilities"],
-        "NTA": row["net_tangible_assets"],
-        "NTA / Share": row["nta_per_share"],
+    # Output row (stable user-facing columns)
+    out_row: Dict[str, Any] = {
+        "Ticker": base["ticker"],
+        "Company": base["company_name"],
+        "Sector": base["sector"],
+        "Industry": base["industry"],
+        "Currency": base["currency"],
+        "As Of": base["asof"],
 
-        # Book value (explicit)
-        "Book Value (Total, Yahoo)": row["book_value_total_yahoo"],
-        "Book Value / Share (Yahoo)": row["book_value_per_share_yahoo"],
-        "Book Value (Total, Assets-Liab)": row["book_value_total_bs_equity"],
-        "Book Value / Share (Assets-Liab)": row["book_value_per_share_bs_equity"],
+        "Price": base["currentPrice"],
+        "Market Cap": base["marketCap"],
+        "Shares Out": base["sharesOutstanding"],
 
-        # Intrinsic values (prices)
-        "DCF Price (5yr)": row["dcf_price"],
-        "Residual Income Price": row["residual_income_price"],
-        "Asset Based Price": row["asset_based_price"],
-        "SOTP Price": row["sotp_price"],
-        "Dividend Discount Price": row["ddm_price"],
-        "Earnings Power Value (EPV) Price": row["epv_price"],
-        "Option Pricing Value": row["option_value"],
+        "Cash": base["cash"],
+        "Total Debt": base["totalDebt"],
+        "Net Debt (Debt - Cash)": base.get("net_debt", np.nan),
+        "Total Assets": base["total_assets"],
+        "Total Liabilities": base["total_liabilities"],
+        "NTA": base["net_tangible_assets"],
+        "NTA / Share": base.get("nta_per_share", np.nan),
 
-        # Diagnostics
-        "DCF Estimate": row["dcf_estimate"],
-        "Reverse DCF Implied Growth": row["reverse_dcf_implied_growth"],
-        "PEG Ratio": row["peg_ratio"],
-        "Normalized Earnings": row["normalized_earnings"],
-        "EPV/EBITDA Multiple": row["epv_ebit_multiple"],
+        "Book Value (Total, Yahoo)": base.get("book_value_total_yahoo", np.nan),
+        "Book Value / Share (Yahoo)": base.get("book_value_per_share_yahoo", np.nan),
+        "Book Value (Total, Assets-Liab)": base.get("book_value_total_bs_equity", np.nan),
+        "Book Value / Share (Assets-Liab)": base.get("book_value_per_share_bs_equity", np.nan),
 
-        # Premium/(Discount) vs price
-        "DCF Premium/(Discount)": row["dcf_prem"],
-        "Residual Income Premium/(Discount)": row["ri_prem"],
-        "Asset Based Premium/(Discount)": row["asset_prem"],
-        "SOTP Premium/(Discount)": row["sotp_prem"],
-        "Dividend Discount Premium/(Discount)": row["ddm_prem"],
-        "EPV Premium/(Discount)": row["epv_prem"],
-        "Option Pricing Premium/(Discount)": row["opt_prem"],
+        "DCF Price (5yr)": base.get("dcf_price", np.nan),
+        "Residual Income Price": base.get("residual_income_price", np.nan),
+        "Asset Based Price": base.get("asset_based_price", np.nan),
+        "SOTP Price": base.get("sotp_price", np.nan),
+        "Dividend Discount Price": base.get("ddm_price", np.nan),
+        "Earnings Power Value (EPV) Price": base.get("epv_price", np.nan),
+        "Option Pricing Value": base.get("option_value", np.nan),
 
-        "Margin of Safety": row["margin_of_safety"],
-        "MOS Buy Price": row["mos_buy_price"],
-        "Undervalued Methods Count": row["undervalued_methods_count"],
+        "DCF Estimate": base.get("dcf_estimate", ""),
 
-        # Inputs / parameters used (per company + global)
-        "FCF (Yahoo)": row["freeCashflow"],
-        "Revenue Growth (Yahoo)": row["revenueGrowth"],
-        "Growth Input Used": row["growth_input_used"],
-        "Beta": row["beta"],
+        "DCF Premium/(Discount)": base.get("dcf_prem", np.nan),
+        "Residual Income Premium/(Discount)": base.get("ri_prem", np.nan),
+        "Asset Based Premium/(Discount)": base.get("asset_prem", np.nan),
+        "SOTP Premium/(Discount)": base.get("sotp_prem", np.nan),
+        "Dividend Discount Premium/(Discount)": base.get("ddm_prem", np.nan),
+        "EPV Premium/(Discount)": base.get("epv_prem", np.nan),
+        "Option Pricing Premium/(Discount)": base.get("opt_prem", np.nan),
+
+        "Undervalued Methods Count": base.get("undervalued_methods_count", np.nan),
+        "Margin of Safety": base.get("margin_of_safety", np.nan),
+        "MOS Buy Price": base.get("mos_buy_price", np.nan),
+
+        "FCF (Yahoo)": base.get("freeCashflow", np.nan),
+        "Revenue Growth (Yahoo)": base.get("revenueGrowth", np.nan),
+        "Growth Input Used": base.get("growth_input_used", np.nan),
+        "Beta": base.get("beta", np.nan),
         "Risk Free Rate": ASSUMPTIONS["risk_free_rate"],
         "Market Risk Premium": ASSUMPTIONS["market_risk_premium"],
-        "Cost of Equity": row["cost_of_equity"],
-        "WACC": row["wacc"],
+        "Cost of Equity": base.get("cost_of_equity", np.nan),
+        "WACC": base.get("wacc", np.nan),
         "Terminal Growth Rate": ASSUMPTIONS["terminal_growth_rate"],
         "Valuation Period (yrs)": ASSUMPTIONS["valuation_period"],
         "Tax Rate": ASSUMPTIONS["tax_rate"],
-        "Asset Premium": ASSUMPTIONS["asset_premium"],
-        "SOTP Discount": ASSUMPTIONS["sotp_discount"],
-        "Dividend Growth Rate": ASSUMPTIONS["dividend_growth_rate"],
-        "Option Years": ASSUMPTIONS["option_years"],
-        "Option Volatility": ASSUMPTIONS["volatility"],
-        "Option Strike": row["option_strike"],
 
-        # Extra quant fields
-        "FCF Yield": row["fcf_yield"],
-        "Trailing PE": row["trailing_pe"],
-        "Forward PE": row["forward_pe"],
-        "P/B": row["price_to_book"],
-        "EV/EBITDA": row["ev_to_ebitda"],
-        "Gross Margin": row["gross_margin"],
-        "Operating Margin": row["operating_margin"],
-        "Profit Margin": row["profit_margin"],
-        "ROA": row["roa"],
-        "ROE": row["roe"],
-        "Debt/Equity": row["debt_to_equity"],
-        "Current Ratio": row["current_ratio"],
-        "Quick Ratio": row["quick_ratio"],
-        "Net Debt/EBITDA": row["net_debt_to_ebitda"],
-        "Held % Insiders": row["held_pct_insiders"],
-        "Held % Institutions": row["held_pct_institutions"],
-        "Short % Float": row["short_pct_float"],
-        "Enterprise Value (Yahoo/Calc)": row["enterprise_value_yahoo_or_calc"],
+        "FCF Yield": base.get("fcf_yield", np.nan),
+        "Trailing PE": base.get("trailing_pe", np.nan),
+        "Forward PE": base.get("forward_pe", np.nan),
+        "P/B": base.get("price_to_book", np.nan),
+        "EV/EBITDA": base.get("ev_to_ebitda", np.nan),
+        "Net Debt/EBITDA": base.get("net_debt_to_ebitda", np.nan),
+
+        "ROA": base.get("roa", np.nan),
+        "ROE": base.get("roe", np.nan),
+        "Gross Margin": base.get("gross_margin", np.nan),
+        "Operating Margin": base.get("operating_margin", np.nan),
+        "Profit Margin": base.get("profit_margin", np.nan),
+
+        "Debt/Equity": base.get("debt_to_equity", np.nan),
+        "Current Ratio": base.get("current_ratio", np.nan),
+        "Quick Ratio": base.get("quick_ratio", np.nan),
+
+        "Held % Insiders": base.get("held_pct_insiders", np.nan),
+        "Held % Institutions": base.get("held_pct_institutions", np.nan),
+        "Short % Float": base.get("short_pct_float", np.nan),
+
+        "Reverse DCF Implied Growth": base.get("reverse_dcf_implied_growth", np.nan),
+        "PEG Ratio": base.get("peg_ratio", np.nan),
+
+        "Enterprise Value (Yahoo/Calc)": base.get("enterprise_value_yahoo_or_calc", np.nan),
     }
+
+    # Add technical columns with the exact names the screener expects
+    out_row.update(tech)
+
+    # Add a simple completeness score for quick filtering
+    out_row["Data Quality Score"] = data_quality_score(out_row)
 
     return out_row
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Compute intrinsic values for all ASX tickers and export to Excel.")
+    ap = argparse.ArgumentParser(description="Compute intrinsic values + technicals for all ASX tickers and export to Excel/CSV/JSON.")
     ap.add_argument("--scraper", default="scrape_asx_universe.py", help="Path to scrape_asx_universe.py")
     ap.add_argument("--universe_csv", default="data/universe/asx_universe.csv", help="Universe CSV output (cached)")
     ap.add_argument("--tickers_txt", default="", help="Optional tickers TXT output (cached)")
     ap.add_argument("--universe_max_age_days", type=int, default=30, help="Refresh universe only if older than this many days")
     ap.add_argument("--universe_source", default="auto", choices=["auto", "asx_csv", "marketindex"], help="Universe source")
-    ap.add_argument("--universe_sleep", type=float, default=0.5, help="Polite sleep for fallback crawling (universe script)")
-    ap.add_argument("--materials_energy_csv", default="data/roster/asx_materials_energy_companies.csv", help="Optional: join products/stage if exists")
+    ap.add_argument("--universe_sleep", type=float, default=0.5, help="Sleep for fallback crawling (universe script)")
+    ap.add_argument("--materials_energy_csv", default="data/roster/asx_materials_energy_companies.csv", help="Optional join (products/stage) if exists")
     ap.add_argument("--output_xlsx", default="", help="Output Excel path (default: data/valuations/...)")
-    ap.add_argument("--public_dir", default="public/data", help="Also write latest.* (xlsx/csv/json[/parquet]) into this directory for Cloudflare Pages")
-    ap.add_argument("--sleep", type=float, default=0.25, help="Sleep seconds between Yahoo calls (valuations)")
-    ap.add_argument("--limit", type=int, default=0, help="Limit tickers (debug). 0 = no limit")
+    ap.add_argument("--public_dir", default="public/data", help="Write latest.* outputs into this directory for Cloudflare Pages")
+    ap.add_argument("--sleep", type=float, default=0.25, help="Sleep seconds between Yahoo calls")
+    ap.add_argument("--limit", type=int, default=0, help="Limit tickers for testing (0 = no limit)")
     ap.add_argument("--resume", action="store_true", help="Resume from a progress CSV if present")
     ap.add_argument("--progress_csv", default="data/valuations/_progress_intrinsic.csv", help="Progress CSV for --resume")
+    ap.add_argument("--benchmark", default="^AXJO", help="Benchmark ticker for beta calc (default ^AXJO)")
+    ap.add_argument("--history_period", default="1y", help="yfinance history period (default 1y)")
+    ap.add_argument("--history_interval", default="1d", help="yfinance history interval (default 1d)")
+    ap.add_argument("--disable_technicals", action="store_true", help="Disable technical calculations (faster)")
     args = ap.parse_args()
 
     scraper_path = Path(args.scraper).resolve()
     universe_csv = Path(args.universe_csv).resolve()
     tickers_txt = Path(args.tickers_txt).resolve() if args.tickers_txt else None
 
-    # 1) Universe refresh (monthly)
     maybe_refresh_universe(
         scraper_path=scraper_path,
         universe_csv=universe_csv,
@@ -944,16 +923,23 @@ def main() -> None:
         sleep_s=args.universe_sleep,
     )
 
-    # 2) Load universe
     universe = load_universe(universe_csv)
     if args.limit and args.limit > 0:
         universe = universe[: args.limit]
     print(f"[info] tickers to process: {len(universe)}")
 
-    # Optional join: products/stage (from your materials/energy scraper)
     me_df = maybe_load_materials_energy(Path(args.materials_energy_csv).resolve())
 
-    # 3) Resume support
+    # Benchmark returns (daily)
+    benchmark_rets = None
+    if not args.disable_technicals:
+        try:
+            b_hist = fetch_history(args.benchmark, args.history_period, args.history_interval)
+            if not b_hist.empty and "Close" in b_hist.columns:
+                benchmark_rets = b_hist["Close"].astype(float).pct_change().dropna()
+        except Exception:
+            benchmark_rets = None
+
     progress_csv = Path(args.progress_csv).resolve()
     processed = set()
     rows_out: List[Dict[str, Any]] = []
@@ -968,7 +954,6 @@ def main() -> None:
         except Exception as e:
             print(f"[warn] failed to read progress csv; starting fresh: {e}")
 
-    # 4) Main loop
     t0 = time.time()
     for i, u in enumerate(universe, start=1):
         if u.ticker in processed:
@@ -976,14 +961,19 @@ def main() -> None:
 
         print(f"[{i}/{len(universe)}] {u.ticker}")
         try:
-            r = fetch_one(u.ticker, u)
+            r = fetch_one(
+                u.ticker, u,
+                benchmark_rets=benchmark_rets,
+                history_period=args.history_period,
+                history_interval=args.history_interval,
+                disable_technicals=args.disable_technicals
+            )
             if r is not None:
                 rows_out.append(r)
                 processed.add(u.ticker)
         except Exception as e:
             print(f"[warn] {u.ticker} failed: {e}")
 
-        # Flush progress every 50 tickers
         if args.resume and (len(processed) % 50 == 0):
             ensure_parent_dir(progress_csv)
             pd.DataFrame(rows_out).to_csv(progress_csv, index=False)
@@ -999,7 +989,7 @@ def main() -> None:
 
     df = pd.DataFrame(rows_out)
 
-    # Add products/stage if we have it
+    # Optional join: materials/energy products/stage
     if me_df is not None:
         df["_ticker_norm"] = df["Ticker"].astype(str).map(normalize_ticker)
         me_df2 = me_df.copy()
@@ -1010,74 +1000,62 @@ def main() -> None:
             df.rename(columns={"products": "Products (Materials/Energy)", "stage": "Stage (Materials/Energy)"}, inplace=True)
         df.drop(columns=["_ticker_norm"], inplace=True)
 
-    # Order columns (best-effort)
-    preferred = [
-        "Ticker","Company","Sector","Industry","Products (Materials/Energy)","Stage (Materials/Energy)",
-        "Price","Market Cap","Shares Out",
-        "DCF Price (5yr)","Residual Income Price","Asset Based Price","SOTP Price","Dividend Discount Price","Earnings Power Value (EPV) Price","Option Pricing Value",
-        "DCF Premium/(Discount)","Residual Income Premium/(Discount)","Asset Based Premium/(Discount)","SOTP Premium/(Discount)","Dividend Discount Premium/(Discount)","EPV Premium/(Discount)","Option Pricing Premium/(Discount)",
-        "Undervalued Methods Count","MOS Buy Price","Margin of Safety",
-        "Book Value (Total, Yahoo)","Book Value / Share (Yahoo)","Book Value (Total, Assets-Liab)","Book Value / Share (Assets-Liab)","NTA","NTA / Share",
-        "FCF (Yahoo)","Revenue Growth (Yahoo)","Growth Input Used","Beta","Cost of Equity","WACC",
-        "FCF Yield","Trailing PE","Forward PE","P/B","EV/EBITDA","Net Debt/EBITDA",
-        "ROE","ROA","Gross Margin","Operating Margin","Profit Margin",
-        "Debt/Equity","Current Ratio","Quick Ratio",
-        "Held % Insiders","Held % Institutions","Short % Float",
-        "Reverse DCF Implied Growth","PEG Ratio","Normalized Earnings","EPV/EBITDA Multiple",
-        "Enterprise Value (Yahoo/Calc)",
-        "Cash","Total Debt","Net Debt (Debt - Cash)","Total Assets","Total Liabilities",
-        "Risk Free Rate","Market Risk Premium","Terminal Growth Rate","Valuation Period (yrs)","Tax Rate","Asset Premium","SOTP Discount","Dividend Growth Rate","Option Years","Option Volatility","Option Strike",
-        "Currency","As Of","DCF Estimate",
-    ]
-    cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
-    df = df[cols]
-
-    # Output path
+    # Output path (full workbook)
     if args.output_xlsx:
         out_xlsx = Path(args.output_xlsx).resolve()
     else:
         out_xlsx = Path("data/valuations").resolve() / f"ASX_Intrinsic_Valuations_{now_stamp()}.xlsx"
     ensure_parent_dir(out_xlsx)
 
-    # 5) Write Excel
+    # Write full workbook (Valuations only for speed; you can add extra sheets later)
     with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="Valuations", index=False)
-        write_assumptions_sheet(writer)
-        build_formulas_sheet(writer)
-
-        # Formatting on main sheet
         ws = writer.book["Valuations"]
         format_sheet(ws)
 
-    # Keep progress CSV as a bonus artifact for later runs
     if args.resume:
         ensure_parent_dir(progress_csv)
         df.to_csv(progress_csv, index=False)
 
     print(f"[ok] wrote: {out_xlsx}")
 
-    # 6) Also export into public_dir for Cloudflare Pages (latest.*)
-    import shutil
+    # Export web artifacts
     public_dir = Path(args.public_dir).resolve()
     public_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy Excel to a stable filename
-    latest_xlsx = public_dir / "latest.xlsx"
-    try:
-        shutil.copy2(out_xlsx, latest_xlsx)
-    except Exception:
-        # Fallback: write a fresh workbook
-        with pd.ExcelWriter(latest_xlsx, engine="openpyxl") as writer2:
-            df.to_excel(writer2, sheet_name="Valuations", index=False)
+    # Web-friendly subset (keeps latest.xlsx smaller for Cloudflare Pages)
+    WEB_COLS = [
+        "Ticker","Company","Sector","Industry",
+        "Price","Market Cap",
+        "DCF Price (5yr)","DCF Premium/(Discount)","FCF Yield","Undervalued Methods Count",
+        "RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)",
+        "Return 1m","Return 3m","Return 12m",
+        "% From 52W High","% From 52W Low",
+        "Avg $Vol 20d","Avg Vol 20d",
+        "Beta vs Benchmark (1y)",
+        "ROE","P/B","Net Debt/EBITDA",
+        "MOS Buy Price","Margin of Safety",
+        "Data Quality Score",
+        "As Of",
+    ]
+    web_df = df[[c for c in WEB_COLS if c in df.columns]].copy()
 
-    # CSV + JSON (machine-friendly)
+    latest_xlsx = public_dir / "latest.xlsx"
+    with pd.ExcelWriter(latest_xlsx, engine="openpyxl") as writer2:
+        web_df.to_excel(writer2, sheet_name="Valuations", index=False)
+        ws2 = writer2.book["Valuations"]
+        format_sheet(ws2)
+
+    # CSV + JSON (full dataset; UI uses JSON)
     df.to_csv(public_dir / "latest.csv", index=False)
     df.to_json(public_dir / "latest.json", orient="records")
 
-    # Parquet (optional: requires pyarrow or fastparquet)
+    # Parquet (optional)
     parquet_path = public_dir / "latest.parquet"
+    parquet_ok = False
     try:
         df.to_parquet(parquet_path, index=False)
+        parquet_ok = True
     except Exception:
         if parquet_path.exists():
             try:
@@ -1085,20 +1063,22 @@ def main() -> None:
             except Exception:
                 pass
 
-    # Manifest metadata
     manifest = {
         "generated_at_local": datetime.now().isoformat(timespec="seconds"),
         "rows": int(df.shape[0]),
         "columns": int(df.shape[1]),
+        "benchmark": args.benchmark,
+        "history_period": args.history_period,
+        "history_interval": args.history_interval,
         "files": {
             "xlsx": "latest.xlsx",
             "csv": "latest.csv",
             "json": "latest.json",
-            "parquet": ("latest.parquet" if parquet_path.exists() else None),
+            "parquet": ("latest.parquet" if parquet_ok else None),
         },
     }
     (public_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
+    print(f"[ok] wrote web exports to: {public_dir}")
 
 
 if __name__ == "__main__":

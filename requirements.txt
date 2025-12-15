@@ -5,3 +5,5 @@ pandas==2.3.3
 openpyxl==3.1.5
 requests==2.32.5
 yfinance==0.2.66
+# Optional (enables Parquet export):
+# pyarrow==17.0.0

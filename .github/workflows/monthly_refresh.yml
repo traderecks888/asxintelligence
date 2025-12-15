@@ -35,7 +35,7 @@ jobs:
 
       - name: Run monthly valuation refresh
         run: |
-          python asx_intrinsic_valuations_export.py --resume --universe_max_age_days 30 --public_dir public/data --sleep 0.25
+          python asx_intrinsic_valuations_export.py --resume --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
 
       - name: Commit updated outputs
         run: |

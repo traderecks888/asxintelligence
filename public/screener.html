@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ASX Intelligence – Screener</title>
+
+  <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
+
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:18px}
+    .topbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+    .pill{border:1px solid #ddd;border-radius:999px;padding:6px 10px}
+    .card{border:1px solid #ddd;border-radius:14px;padding:14px}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    @media (max-width: 900px){ .grid{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width: 520px){ .grid{grid-template-columns:1fr} }
+    input,select{padding:8px 10px;border-radius:10px;border:1px solid #ccc}
+    button{padding:9px 12px;border-radius:10px;border:1px solid #111;background:#111;color:#fff;cursor:pointer}
+    button.secondary{background:#fff;color:#111}
+    small{color:#666}
+    #table{margin-top:12px}
+    .charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+    @media (max-width: 900px){ .charts{grid-template-columns:1fr} }
+    canvas{width:100%;max-height:320px}
+    a{color:#0b57d0;text-decoration:none}
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <a href="/" class="pill">← Home</a>
+    <div class="pill"><strong>ASX Visual Screener</strong></div>
+    <small id="meta">Loading…</small>
+  </div>
+
+  <div class="grid">
+    <div class="card"><div><small>Universe rows</small></div><div id="kpiRows" style="font-size:22px;font-weight:700;">–</div></div>
+    <div class="card"><div><small>Median DCF discount</small></div><div id="kpiDCF" style="font-size:22px;font-weight:700;">–</div></div>
+    <div class="card"><div><small>Median FCF yield</small></div><div id="kpiFCF" style="font-size:22px;font-weight:700;">–</div></div>
+    <div class="card"><div><small>Median Undervalued count</small></div><div id="kpiUC" style="font-size:22px;font-weight:700;">–</div></div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="topbar" style="margin:0;">
+      <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
+      <select id="sector"></select>
+
+      <input id="minMcap" type="number" step="1000000" placeholder="Min market cap (AUD)">
+      <input id="minFcf" type="number" step="0.01" placeholder="Min FCF yield (e.g. 0.08)">
+      <input id="minU" type="number" step="1" placeholder="Min undervalued count">
+
+      <button id="apply">Apply</button>
+      <button id="reset" class="secondary">Reset</button>
+      <button id="dl" class="secondary">Download filtered CSV</button>
+    </div>
+
+    <div class="charts">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong>DCF discount vs FCF yield</strong>
+          <small>(bubble size ~ market cap)</small>
+        </div>
+        <canvas id="scatter"></canvas>
+      </div>
+      <div class="card">
+        <strong>Undervalued methods count distribution</strong>
+        <canvas id="hist"></canvas>
+      </div>
+    </div>
+
+    <div id="table"></div>
+    <small>Tip: sort by “Undervalued Methods Count”, then “DCF Disc”, then “FCF Yield”.</small>
+  </div>
+
+  <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/screener.js"></script>
+</body>
+</html>

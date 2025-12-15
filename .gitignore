@@ -30,3 +30,6 @@ data/valuations/_progress_intrinsic.csv
 data/valuations/*.parquet
 data/valuations/*.json
 data/valuations/*.csv
+
+# Optional: universe cache (comment out if you WANT to commit it)
+# data/universe/asx_universe.csv

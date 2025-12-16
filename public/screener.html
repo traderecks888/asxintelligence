@@ -24,6 +24,8 @@
     @media (max-width: 900px){ .charts{grid-template-columns:1fr} }
     canvas{width:100%;max-height:320px}
     a{color:#0b57d0;text-decoration:none}
+    #err{display:none;margin-top:10px;padding:10px;border:1px solid #f1c40f;border-radius:12px;background:#fff7e6}
+    #err code{background:#fff3cd;padding:2px 6px;border-radius:8px}
   </style>
 </head>
 
@@ -33,6 +35,8 @@
     <div class="pill"><strong>ASX Visual Screener</strong></div>
     <small id="meta">Loading…</small>
   </div>
+
+  <div id="err"></div>
 
   <div class="grid">
     <div class="card"><div><small>Universe rows</small></div><div id="kpiRows" style="font-size:22px;font-weight:700;">–</div></div>
@@ -75,6 +79,7 @@
 
   <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/screener.js"></script>
+  <!-- cache-bust -->
+  <script src="/screener.js?v=0.43"></script>
 </body>
 </html>

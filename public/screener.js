@@ -13,21 +13,59 @@ let table = null;
 let scatterChart = null;
 let histChart = null;
 
-async function load(){
-  const m = await fetch("/data/manifest.json", {cache:"no-store"}).then(r=>r.ok?r.json():null).catch(()=>null);
-  document.getElementById("meta").textContent = m
-    ? `Last update: ${m.generated_at_local} • Rows: ${m.rows}`
-    : `manifest.json not found (run the GitHub Action once)`;
+function setMeta(msg){ const el = document.getElementById("meta"); if(el) el.textContent = msg; }
+function showErr(msg){
+  const el = document.getElementById("err");
+  if(!el) return;
+  el.style.display = "block";
+  el.innerHTML = msg;
+}
 
-  raw = await fetch("/data/latest.json", {cache:"no-store"}).then(r=>r.json());
-  bootUI(raw);
+async function fetchJson(url){
+  const r = await fetch(url, {cache:"no-store"});
+  if(!r.ok) throw new Error(`${url} HTTP ${r.status}`);
+  return await r.json();
+}
+
+async function load(){
+  try{
+    let m = null;
+    try { m = await fetchJson("/data/manifest.json"); } catch(e) {}
+    setMeta(m ? `Last update: ${m.generated_at_local} • Rows: ${m.rows}` : "Loading dataset…");
+
+    // Prefer the small web JSON for UI speed; fallback to full JSON.
+    let rows = null;
+    try{
+      rows = await fetchJson("/data/latest_web.json");
+    }catch(e1){
+      rows = await fetchJson("/data/latest.json");
+    }
+
+    if(!Array.isArray(rows) || rows.length === 0){
+      throw new Error("Dataset loaded but appears empty.");
+    }
+
+    raw = rows;
+    bootUI(raw);
+    setMeta(m ? `Last update: ${m.generated_at_local} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
+  }catch(err){
+    console.error(err);
+    setMeta("Error loading dataset");
+    showErr(
+      `<strong>Could not load data.</strong><br>` +
+      `Open <code>/data/latest_web.json</code> to confirm it exists, then hard-refresh.<br>` +
+      `<small>${String(err).replaceAll("<","&lt;").replaceAll(">","&gt;")}</small>`
+    );
+  }
 }
 
 function bootUI(rows){
+  // sector dropdown
   const sectors = Array.from(new Set(rows.map(r => r["Sector"]).filter(Boolean))).sort();
   const sel = document.getElementById("sector");
-  sel.innerHTML = `<option value="">All sectors</option>` + sectors.map(s=>`<option>${s}</option>`).join("");
+  if(sel) sel.innerHTML = `<option value="">All sectors</option>` + sectors.map(s=>`<option>${s}</option>`).join("");
 
+  // KPIs
   document.getElementById("kpiRows").textContent = rows.length.toLocaleString();
   document.getElementById("kpiDCF").textContent = pct(median(rows.map(r => r["DCF Premium/(Discount)"])));
   document.getElementById("kpiFCF").textContent = pct(median(rows.map(r => r["FCF Yield"])));
@@ -64,15 +102,12 @@ function bootUI(rows){
       {title:"MDD", field:"Max Drawdown (1y)", formatter:(c)=>pct(c.getValue())},
 
       {title:"% from 52W High", field:"% From 52W High", formatter:(c)=>pct(c.getValue()), visible:false},
-      {title:"% from 52W Low", field:"% From 52W Low", formatter:(c)=>pct(c.getValue()), visible:falseTitle:false, visible:false},
+      {title:"% from 52W Low", field:"% From 52W Low", formatter:(c)=>pct(c.getValue()), visible:false},
+
       {title:"Ret 3m", field:"Return 3m", formatter:(c)=>pct(c.getValue()), visible:false},
       {title:"Ret 12m", field:"Return 12m", formatter:(c)=>pct(c.getValue()), visible:false},
 
-      {title:"ROE", field:"ROE", formatter:(c)=>pct(c.getValue()), visible:false},
-      {title:"P/B", field:"P/B", formatter:(c)=>fmt2(c.getValue()), visible:false},
-      {title:"NetDebt/EBITDA", field:"Net Debt/EBITDA", formatter:(c)=>fmt2(c.getValue()), visible:false},
       {title:"Beta", field:"Beta vs Benchmark (1y)", formatter:(c)=>fmt2(c.getValue()), visible:false},
-
       {title:"Data Q", field:"Data Quality Score", formatter:(c)=>fmt2(c.getValue()), visible:false},
     ],
   });
@@ -120,20 +155,30 @@ function applyFilters(){
 }
 
 function rebuildCharts(rows){
-  const pts = rows
+  // Scatter: sample top N by market cap to keep Chart.js snappy
+  const ptsAll = rows
     .map(r => ({
       x: r["DCF Premium/(Discount)"],
       y: r["FCF Yield"],
-      r: Math.max(2, Math.min(16, (Number(r["Market Cap"])||0) / 5e10 * 16)),
+      m: Number(r["Market Cap"]) || 0,
       label: r["Ticker"]
     }))
     .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+  ptsAll.sort((a,b)=>b.m-a.m);
+  const N = Math.min(900, ptsAll.length);
+  const pts = ptsAll.slice(0, N).map(p => ({
+    x: p.x,
+    y: p.y,
+    r: Math.max(2, Math.min(16, p.m / 5e10 * 16)),
+    label: p.label
+  }));
 
   const scatterCtx = document.getElementById("scatter");
   if(scatterChart) scatterChart.destroy();
   scatterChart = new Chart(scatterCtx, {
     type: "bubble",
-    data: { datasets: [{ label: "Stocks", data: pts }]},
+    data: { datasets: [{ label: `Top ${N} by mkt cap`, data: pts }]},
     options: {
       parsing:false,
       plugins:{ tooltip:{
@@ -148,6 +193,7 @@ function rebuildCharts(rows){
     }
   });
 
+  // Histogram
   const counts = rows.map(r => r["Undervalued Methods Count"]).filter(Number.isFinite);
   const max = counts.length ? Math.max(...counts) : 0;
   const bins = Array.from({length: max+1}, (_,i)=>i);

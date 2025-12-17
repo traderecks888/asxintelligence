@@ -1041,6 +1041,8 @@ def main() -> None:
     df["_liq"] = _pct_rank(df.get("Avg $Vol 20d", pd.Series(dtype=float)), ascending=True)
     liquidity_bonus = df["_liq"] * 10.0  # +0 to +10
 
+    df["Liquidity Bonus"] = liquidity_bonus.round(2)
+
     df["Value Score"] = value_score.round(2)
     df["Quality Score"] = quality_score.round(2)
     df["Risk Score"] = risk_score.round(2)
@@ -1104,6 +1106,7 @@ def main() -> None:
         "Data Quality Score",
         "As Of",
         "Screener Score",
+        "Liquidity Bonus",
         "Value Score",
         "Quality Score",
         "Risk Score",

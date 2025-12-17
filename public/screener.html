@@ -30,7 +30,15 @@
     .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
     .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
     input[type="range"]{width:100%}
-  </style>
+  
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.badge{border:1px solid #ddd;border-radius:999px;padding:4px 8px;font-size:12px;background:#f8f8f8}
+.bar{height:10px;background:#eee;border-radius:999px;overflow:hidden}
+.fill{height:100%;background:#111;border-radius:999px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+@media (max-width: 900px){ .grid2{grid-template-columns:1fr} }
+
+</style>
 </head>
 
 <body>
@@ -125,6 +133,16 @@
         <canvas id="hist"></canvas>
       </div>
     </div>
+
+    <details id="scoreDetails" class="card" style="margin-top:12px;">
+  <summary><strong>Selected stock score breakdown</strong> <small id="scoreDetailsHint">Click a row in the table</small></summary>
+  <div id="scoreDetailsBody" style="margin-top:10px;">
+    <small>
+      This panel explains the 0–100 Screener Score for the selected stock: Value (45%), Quality (30%), Risk (25%), plus a small Liquidity bonus (0–10).
+      Click any row to populate it.
+    </small>
+  </div>
+</details>
 
     <div id="table"></div>
     <small>Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>

@@ -8,6 +8,143 @@ function pct(x){ return Number.isFinite(x) ? (x*100).toFixed(1) + "%" : "–"; }
 function fmt2(x){ return Number.isFinite(x) ? x.toFixed(2) : "–"; }
 function fmtInt(x){ return Number.isFinite(x) ? Math.round(x).toLocaleString() : "–"; }
 
+function clamp(x, a, b){ return Math.max(a, Math.min(b, x)); }
+
+function barRow(label, value, max){
+  const v = Number.isFinite(value) ? value : NaN;
+  const pctw = Number.isFinite(v) ? (clamp(v / max, 0, 1) * 100) : 0;
+  const valText = Number.isFinite(v) ? (max === 10 ? v.toFixed(2) + " / 10" : v.toFixed(2) + " / 100") : "–";
+  return `
+    <div style="margin:8px 0;">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;">
+        <strong>${label}</strong>
+        <small>${valText}</small>
+      </div>
+      <div class="bar"><div class="fill" style="width:${pctw}%;"></div></div>
+    </div>`;
+}
+
+function pickBestWorst(parts){
+  const finite = parts.filter(p => Number.isFinite(p.score));
+  if(!finite.length) return {best:null, worst:null};
+  const best = finite.reduce((a,b)=> (b.score>a.score)?b:a);
+  const worst = finite.reduce((a,b)=> (b.score<a.score)?b:a);
+  return {best, worst};
+}
+
+function renderScoreDetails(d){
+  const el = document.getElementById("scoreDetailsBody");
+  const hint = document.getElementById("scoreDetailsHint");
+  const det = document.getElementById("scoreDetails");
+  if(!el) return;
+
+  const score = num(d["Screener Score"]);
+  const v = num(d["Value Score"]);
+  const q = num(d["Quality Score"]);
+  const r = num(d["Risk Score"]);
+
+  let liq = num(d["Liquidity Bonus"]);
+  // Fallback if Liquidity Bonus not provided by dataset yet.
+  if(!Number.isFinite(liq)){
+    const dv = num(d["Avg $Vol 20d"]);
+    if(Number.isFinite(dv)){
+      const dvs = (filteredNow.length ? filteredNow : raw)
+        .map(x => num(x["Avg $Vol 20d"]))
+        .filter(Number.isFinite)
+        .sort((a,b)=>a-b);
+      if(dvs.length){
+        const idx = dvs.findIndex(x => x >= dv);
+        const pr = idx >= 0 ? (idx / (dvs.length-1 || 1)) : 1.0;
+        liq = pr * 10.0;
+      }
+    }
+  }
+
+  const parts = [
+    {name:"Value", score:v, weight:0.45},
+    {name:"Quality", score:q, weight:0.30},
+    {name:"Risk", score:r, weight:0.25},
+  ];
+  const bw = pickBestWorst(parts);
+  const bestTag = bw.best ? `${bw.best.name}-led` : "";
+  const worstTag = bw.worst ? `Weakest: ${bw.worst.name}` : "";
+
+  const pred =
+    (Number.isFinite(v)?0.45*v:0) +
+    (Number.isFinite(q)?0.30*q:0) +
+    (Number.isFinite(r)?0.25*r:0) +
+    (Number.isFinite(liq)?liq:0);
+  const delta = Number.isFinite(score) ? (score - pred) : NaN;
+
+  const company = String(d["Company"]||"");
+  const ticker = String(d["Ticker"]||"");
+  const sector = String(d["Sector"]||"");
+  const price = num(d["Price"]);
+  const mcap = num(d["Market Cap"]);
+  const bvps = num(d["Book Value / Share (Assets-Liab)"]);
+  const pb = num(d["P/B"]);
+  const fcfy = num(d["FCF Yield"]);
+  const dcfdisc = num(d["DCF Premium/(Discount)"]);
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:18px;font-weight:800;">${ticker} <small style="font-weight:500;color:#666;">${company}</small></div>
+        <div><small>${sector}</small></div>
+        <div class="badges">
+          ${bestTag ? `<span class="badge">${bestTag}</span>` : ""}
+          ${worstTag ? `<span class="badge">${worstTag}</span>` : ""}
+          ${Number.isFinite(score) ? `<span class="badge">Score: ${score.toFixed(2)} / 100</span>` : `<span class="badge">Score: –</span>`}
+        </div>
+      </div>
+
+      <div>
+        <small>
+          Price: ${Number.isFinite(price)?price.toFixed(2):"–"} •
+          Mkt cap: ${Number.isFinite(mcap)?Math.round(mcap).toLocaleString():"–"}<br>
+          BV/Share: ${Number.isFinite(bvps)?bvps.toFixed(2):"–"} •
+          P/B: ${Number.isFinite(pb)?pb.toFixed(2):"–"} •
+          FCFy: ${Number.isFinite(fcfy)?(fcfy*100).toFixed(1)+"%":"–"} •
+          DCF disc: ${Number.isFinite(dcfdisc)?(dcfdisc*100).toFixed(1)+"%":"–"}
+        </small>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        ${barRow("Value (45%)", v, 100)}
+        ${barRow("Quality (30%)", q, 100)}
+        ${barRow("Risk (25%)", r, 100)}
+        ${barRow("Liquidity bonus (+0 to +10)", liq, 10)}
+      </div>
+      <div>
+        <div class="card">
+          <strong>How the score is formed</strong>
+          <div style="margin-top:6px;">
+            <small>
+              Score ≈ 0.45·Value + 0.30·Quality + 0.25·Risk + LiquidityBonus.<br>
+              Value uses DCF discount, FCF yield, MOS upside, and low P/B.<br>
+              Quality uses ROE, profit margin, and low net debt/EBITDA.<br>
+              Risk favors lower volatility, lower ATR%, and smaller drawdowns.
+            </small>
+          </div>
+          <div style="margin-top:10px;">
+            <small>
+              Computed: ${Number.isFinite(pred)?pred.toFixed(2):"–"} •
+              Reported: ${Number.isFinite(score)?score.toFixed(2):"–"} •
+              Δ: ${Number.isFinite(delta)?delta.toFixed(2):"–"} (rounding/clip differences)
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if(hint) hint.textContent = "";
+  if(det) det.open = true;
+}
+
+
 let raw = [];
 let filteredNow = [];
 let table = null;
@@ -168,6 +305,20 @@ function bootUI(rows){
     pagination: true,
     paginationSize: 50,
     movableColumns: true,
+    rowTooltip: function(e, row){
+  const d = row.getData();
+  const s = num(d["Screener Score"]);
+  const v = num(d["Value Score"]);
+  const q = num(d["Quality Score"]);
+  const r = num(d["Risk Score"]);
+  const lb = num(d["Liquidity Bonus"]);
+  const lbTxt = Number.isFinite(lb) ? (" • +Liq " + lb.toFixed(1)) : "";
+  return "Score " + (Number.isFinite(s)?s.toFixed(1):"–") +
+         " • V " + (Number.isFinite(v)?v.toFixed(0):"–") +
+         " • Q " + (Number.isFinite(q)?q.toFixed(0):"–") +
+         " • R " + (Number.isFinite(r)?r.toFixed(0):"–") +
+         lbTxt;
+},
     initialSort: [
       {column:"Screener Score", dir:"desc"},
       {column:"Undervalued Methods Count", dir:"desc"},
@@ -179,10 +330,10 @@ function bootUI(rows){
       {title:"Company", field:"Company", minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Computed from percentile ranks across the current ASX universe: Score = 0.45·Value + 0.30·Quality + 0.25·Risk + LiquidityBonus (0–10). Value: 40% DCF discount rank + 30% FCF yield rank + 20% MOS upside rank + 10% (low P/B) rank. Quality: 55% ROE rank + 30% profit margin rank + 15% (low net debt/EBITDA) rank. Risk: 45% (low vol20) rank + 25% (low ATR%) rank + 30% drawdown rank (less negative is better). Scores are relative and will shift each refresh.', formatter:(c)=>fmt2(num(c.getValue()))},
-      {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile-based composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile-based composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile-based composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Score = 0.45·Value + 0.30·Quality + 0.25·Risk + LiquidityBonus (0–10). Components are percentile-rank based across the universe and shift each refresh.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
       {title:"Price", field:"Price", formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Mkt Cap", field:"Market Cap", formatter:(c)=>fmtInt(num(c.getValue()))},
@@ -208,6 +359,11 @@ function bootUI(rows){
 
   wireSliders();
   rebuildCharts(rows);
+
+  // Click a row to see full score breakdown without cluttering the table.
+  table.on("rowClick", function(e, row){
+    try{ renderScoreDetails(row.getData()); }catch(err){ console.error(err); }
+  });
 
   document.getElementById("preset").addEventListener("change", () => {
     applyPreset();

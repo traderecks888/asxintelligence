@@ -38,6 +38,18 @@
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
 @media (max-width: 900px){ .grid2{grid-template-columns:1fr} }
 
+
+    /* Tabulator readability tweaks */
+    .tabulator { font-size: 12px; }
+    .tabulator .tabulator-header .tabulator-col { padding-top: 6px; padding-bottom: 6px; }
+    .tabulator .tabulator-header .tabulator-col .tabulator-col-title {
+      font-size: 11px;
+      line-height: 1.1;
+      white-space: normal; /* allow wrap */
+    }
+    .tabulator .tabulator-row .tabulator-cell { padding-top: 4px; padding-bottom: 4px; }
+    #table { overflow-x: auto; }
+
 </style>
 </head>
 

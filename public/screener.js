@@ -6,6 +6,7 @@ function median(arr){
 }
 function pct(x){ return Number.isFinite(x) ? (x*100).toFixed(1) + "%" : "–"; }
 function fmt2(x){ return Number.isFinite(x) ? x.toFixed(2) : "–"; }
+function fmt4(x){ return Number.isFinite(x) ? x.toFixed(4) : "–"; }
 function fmtInt(x){ return Number.isFinite(x) ? Math.round(x).toLocaleString() : "–"; }
 
 function clamp(x, a, b){ return Math.max(a, Math.min(b, x)); }
@@ -121,7 +122,7 @@ function renderScoreDetails(d){
         <div class="card">
           <strong>How the score is formed</strong>
           <div style="margin-top:6px;">
-            <small>Screener Score is a composite (0–100) built at refresh time — the UI does not recompute it.<br><br><strong>1) Component scores (each 0–100)</strong><br><strong>Value (45%)</strong>: percentile ranks of <em>DCF discount</em>, <em>FCF yield</em>, <em>MOS upside</em> (from MOS Buy Price vs Price), and <em>low P/B</em>.<br><strong>Quality (30%)</strong>: percentile ranks of <em>ROE</em>, <em>profit margin</em>, and <em>low net debt/EBITDA</em>.<br><strong>Risk (25%)</strong>: percentile ranks favoring <em>lower volatility (Vol 20d)</em>, <em>lower ATR%</em>, and <em>smaller drawdowns</em>.<br><br><strong>2) Missing data handling</strong><br>If Value/Quality/Risk inputs are missing, weights are re-normalized across available components and a small completeness penalty may apply (depending on your pipeline version).<br><br><strong>3) Liquidity Bonus (0–10)</strong><br>Avg $Vol 20d ≈ mean over ~20 trading days of (Close × Volume) in AUD.<br>LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the ASX universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0.</small>
+            <small>Screener Score is a composite (0–100) built at refresh time — the UI does not recompute it.<br><br><strong>1) Component scores (each 0–100)</strong><br><strong>Value (45%)</strong>: percentile ranks of <em>DCF discount</em>, <em>FCF yield</em>, <em>MOS upside</em> (from MOS Buy Price vs Price), and <em>low P/B</em>.<br><strong>Quality (30%)</strong>: percentile ranks of <em>ROE</em>, <em>profit margin</em>, and <em>low net debt/EBITDA</em>.<br><strong>Risk (25%)</strong>: percentile ranks favoring <em>lower volatility (Vol 20d)</em>, <em>lower ATR%</em>, and <em>smaller drawdowns</em>.<br><br><strong>2) Missing data handling</strong><br>If Value/Quality/Risk inputs are missing, weights are re-normalized across available components and a small completeness penalty may apply (depending on your pipeline version).<br><br><strong>3) Liquidity Bonus (0–10)</strong><br>Avg $Vol 20d ≈ mean over ~20 trading days of (Close × Volume) in AUD.<br>LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the ASX universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.</small>
           </div>
           <div style="margin-top:10px;">
             <small>
@@ -175,6 +176,7 @@ async function fetchJson(url){
 }
 
 function num(v){
+  if (v === null || v === undefined || v === "") return NaN;
   const n = Number(v);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -243,6 +245,7 @@ function wireColumnControls(){
     "Dividend Yield Δ%",
     "Held % Insiders",
     "Held % Institutions",
+    "Dividend Franking % (Latest)",
   ];
   const allDividend = [
     "Dividend Rate (Yahoo)",
@@ -252,6 +255,7 @@ function wireColumnControls(){
     "Dividend Yield (Announced)",
     "Dividend Yield (Current)",
     "Dividend Yield Δ%",
+    "Dividend Franking % (Latest)",
   ];
   const allHoldings = [
     "Held % Insiders",
@@ -390,7 +394,7 @@ function bootUI(rows){
       {title:"Company", field:"Company", minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
@@ -405,12 +409,14 @@ function bootUI(rows){
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
 
-      {title:"Div/Share", field:"Last Dividend / Share", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Div/Share", field:"Last Dividend / Share", formatter:(c)=>fmt4(num(c.getValue())), visible:false},
       {title:"Div Yld Ann", field:"Dividend Yield (Announced)", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Now", field:"Dividend Yield (Current)", headerTooltip:'Implied yield now = (last dividend per share) ÷ (current price).', formatter:(c)=>pct(num(c.getValue())), visible:true},
-      {title:"Div Yld Δ%", field:"Dividend Yield Δ%", headerTooltip:'Relative change vs announcement: (YieldNow − YieldAtAnnouncement) ÷ YieldAtAnnouncement.', formatter:(c)=>pct(num(c.getValue())), visible:true},
-      {title:"Held% Ins", field:"Held % Insiders", headerTooltip:'Estimated % of shares held by insiders (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:true},
-      {title:"Held% Inst", field:"Held % Institutions", headerTooltip:'Estimated % of shares held by institutions (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:true},
+      {title:"Div Yld Now", field:"Dividend Yield (Current)", headerTooltip:'Implied yield now = (last dividend per share) ÷ (current price).', formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld Δ%", field:"Dividend Yield Δ%", headerTooltip:'Relative change vs announcement: (YieldNow − YieldAtAnnouncement) ÷ YieldAtAnnouncement.', formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Frank%", field:"Dividend Franking % (Latest)", formatter:(c)=>pct(num(c.getValue())), visible:false, headerTooltip:"Latest dividend franking % (Australia-specific). This is only available if the pipeline supplies it."},
+
+      {title:"Held% Ins", field:"Held % Insiders", headerTooltip:'Estimated % of shares held by insiders (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Held% Inst", field:"Held % Institutions", headerTooltip:'Estimated % of shares held by institutions (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:false},
 
       {title:"BV/Share (Yahoo)", field:"Book Value / Share (Yahoo)", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 

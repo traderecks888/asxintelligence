@@ -54,26 +54,21 @@
 
 
 
-  /* Horizontal scroll bar for very wide tables */
-  #tableWrap{
-    overflow-x: auto;
-    overflow-y: visible;
-    width: 100%;
+  /* Horizontal range slider for the table (always visible, cross-browser) */
+  #table { width: 100%; }
+  #table .tabulator { width: max-content; min-width: 100%; } /* allow overflow if many columns */
+  #table .tabulator-tableholder { overflow-x: auto !important; scrollbar-gutter: stable both-edges; }
+
+  #hscrollWrap{
+    margin-top: 10px;
+    padding: 8px 10px;
     border-radius: 12px;
+    background: rgba(255,255,255,0.04);
   }
-  #hscroll{
-    margin-top: 8px;
-    height: 14px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.06);
-    scrollbar-gutter: stable both-edges;
+  #hscrollRange{
+    width: 100%;
   }
-  #hscrollInner{
-    height: 1px;
-    width: 0px;
-  }
+  .hscrollHelp{ margin-top: 6px; color: #9aa0a6; }
 
 </style>
 </head>
@@ -194,11 +189,10 @@
   </div>
 </details>
 
-    <div id="tableWrap">
     <div id="table"></div>
-  </div>
-  <div id="hscroll" aria-label="Horizontal table scroll">
-    <div id="hscrollInner"></div>
+  <div id="hscrollWrap" aria-label="Horizontal table scroll">
+    <input id="hscrollRange" type="range" min="0" max="0" value="0" step="1" />
+    <div class="hscrollHelp"><small>Scroll table left ↔ right</small></div>
   </div>
     <small>Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
   </div>

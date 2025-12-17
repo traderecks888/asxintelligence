@@ -300,46 +300,51 @@ function wireColumnControls(){
 }
 
 
-function wireHorizontalScroll(){
-  const bar = document.getElementById("hscroll");
-  const inner = document.getElementById("hscrollInner");
+function wireHorizontalSlider(){
+  const range = document.getElementById("hscrollRange");
   const holder = document.querySelector("#table .tabulator-tableholder");
-  if(!bar || !inner || !holder) return;
-
-  // Ensure the table itself can scroll horizontally
-  holder.style.overflowX = "auto";
+  if(!range || !holder) return;
 
   let lock = false;
 
-  const syncSize = ()=>{
-    inner.style.width = Math.max(holder.scrollWidth, holder.clientWidth) + "px";
+  const updateMax = ()=>{
+    const max = Math.max(0, holder.scrollWidth - holder.clientWidth);
+    range.max = String(max);
+    // keep value in range
+    const v = Math.min(max, Math.max(0, holder.scrollLeft));
+    range.value = String(v);
   };
 
-  const syncFromBar = ()=>{
+  const onRange = ()=>{
     if(lock) return;
     lock = true;
-    holder.scrollLeft = bar.scrollLeft;
+    holder.scrollLeft = Number(range.value) || 0;
     lock = false;
   };
 
-  const syncFromTable = ()=>{
+  const onScroll = ()=>{
     if(lock) return;
     lock = true;
-    bar.scrollLeft = holder.scrollLeft;
+    range.value = String(holder.scrollLeft);
     lock = false;
   };
 
-  bar.addEventListener("scroll", syncFromBar);
-  holder.addEventListener("scroll", syncFromTable);
-  window.addEventListener("resize", ()=>setTimeout(syncSize, 50));
+  range.addEventListener("input", onRange);
+  holder.addEventListener("scroll", onScroll);
+  window.addEventListener("resize", ()=>setTimeout(updateMax, 50));
 
-  if(table && table.on){
-    table.on("renderComplete", ()=>setTimeout(syncSize, 0));
-    table.on("columnVisibilityChanged", ()=>setTimeout(syncSize, 0));
-  }
+  // If Tabulator events exist, re-measure on render
+  try{
+    if(table && table.on){
+      table.on("renderComplete", ()=>setTimeout(updateMax, 0));
+      table.on("columnVisibilityChanged", ()=>setTimeout(updateMax, 0));
+      table.on("columnResized", ()=>setTimeout(updateMax, 0));
+      table.on("dataLoaded", ()=>setTimeout(updateMax, 0));
+    }
+  }catch(e){}
 
-  syncSize();
-  syncFromTable();
+  // initial
+  setTimeout(updateMax, 0);
 }
 
 function wireSliders(){
@@ -480,7 +485,7 @@ function bootUI(rows){
   rebuildCharts(rows);
 
   wireColumnControls();
-  wireHorizontalScroll();
+  wireHorizontalSlider();
 
   // Click a row to see full score breakdown without cluttering the table.
   table.on("rowClick", function(e, row){

@@ -750,6 +750,35 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
     if not info:
         return None
 
+    # ----------------------------------------------------------------------------------
+    # Dividend fallback (Yahoo info fields are often missing for AU tickers)
+    # We prefer:
+    # 1) info["dividendRate"/"dividendYield"/"lastDividendValue"/"lastDividendDate"] when present
+    # 2) yfinance dividends time-series as a fallback
+    # ----------------------------------------------------------------------------------
+    div_last_value = np.nan
+    div_last_date_epoch = np.nan
+    div_rate_ttm = np.nan
+
+    try:
+        divs = t.dividends  # pandas Series indexed by date
+        if isinstance(divs, pd.Series) and not divs.empty:
+            div_last_value = float(divs.iloc[-1])
+            try:
+                last_dt = pd.to_datetime(divs.index[-1]).to_pydatetime()
+                # store epoch seconds (UTC) to align with existing handling
+                div_last_date_epoch = float(int(last_dt.replace(tzinfo=ZoneInfo("UTC")).timestamp()))
+            except Exception:
+                div_last_date_epoch = np.nan
+
+            try:
+                cutoff = pd.Timestamp.utcnow().tz_localize("UTC") - pd.Timedelta(days=365)
+                div_rate_ttm = float(divs[divs.index >= cutoff].sum())
+            except Exception:
+                div_rate_ttm = np.nan
+    except Exception:
+        pass
+
     bs = get_balance_sheet_items(t)
 
     current_price = safe_get(info, "currentPrice", np.nan)
@@ -768,6 +797,11 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         "asof": datetime.now().strftime("%Y-%m-%d"),
         "currentPrice": current_price,
         "marketCap": market_cap,
+        # Dividend fields (prefer Yahoo info; fallback to dividends series where missing)
+        "dividendRate": safe_get(info, "dividendRate", np.nan),
+        "dividendYield": safe_get(info, "dividendYield", np.nan),
+        "lastDividendValue": safe_get(info, "lastDividendValue", np.nan),
+        "lastDividendDate": safe_get(info, "lastDividendDate", np.nan),
         "sharesOutstanding": shares_out,
         "beta": safe_get(info, "beta", np.nan),
         "freeCashflow": safe_get(info, "freeCashflow", np.nan),
@@ -790,6 +824,21 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         "total_liabilities": bs["total_liabilities"],
         "net_tangible_assets": bs["net_tangible_assets"],
     }
+
+
+    # Fill missing dividend fields from fallback series
+    try:
+        if np.isnan(safe_get(base, "lastDividendValue", np.nan)) and not np.isnan(div_last_value):
+            base["lastDividendValue"] = div_last_value
+        if np.isnan(safe_get(base, "lastDividendDate", np.nan)) and not np.isnan(div_last_date_epoch):
+            base["lastDividendDate"] = div_last_date_epoch
+        if np.isnan(safe_get(base, "dividendRate", np.nan)) and not np.isnan(div_rate_ttm):
+            base["dividendRate"] = div_rate_ttm
+        # dividendYield can be derived if missing
+        if np.isnan(safe_get(base, "dividendYield", np.nan)) and not np.isnan(safe_get(base, "dividendRate", np.nan)) and not np.isnan(current_price) and current_price:
+            base["dividendYield"] = float(base["dividendRate"]) / float(current_price)
+    except Exception:
+        pass
 
     base.update(calc_valuations(base))
     extras = compute_extra_metrics(info, bs, float(base["sharesOutstanding"]) if not np.isnan(base["sharesOutstanding"]) else np.nan)

@@ -121,12 +121,7 @@ function renderScoreDetails(d){
         <div class="card">
           <strong>How the score is formed</strong>
           <div style="margin-top:6px;">
-            <small>
-              Score ≈ 0.45·Value + 0.30·Quality + 0.25·Risk + LiquidityBonus.<br>
-              Value uses DCF discount, FCF yield, MOS upside, and low P/B.<br>
-              Quality uses ROE, profit margin, and low net debt/EBITDA.<br>
-              Risk favors lower volatility, lower ATR%, and smaller drawdowns.
-            </small>
+            <small>Screener Score is a composite (0–100).<br>Base score uses component scores (0–100): Value (45%), Quality (30%), Risk (25%).<br>If a component is missing (NaN), weights are re-normalized across what exists and a small completeness penalty (up to 10 pts) is applied.<br><br><strong>Liquidity Bonus (0–10)</strong><br>Avg $Vol 20d ≈ mean over ~20 trading days of (Close × Volume) in AUD.<br>LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the ASX universe (0=least liquid, 10=most liquid).<br>Missing liquidity → bonus 0.<br></small>
           </div>
           <div style="margin-top:10px;">
             <small>
@@ -330,7 +325,7 @@ function bootUI(rows){
       {title:"Company", field:"Company", minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", headerTooltip:"Screener Score (0–100). Computed from percentile ranks across the current ASX universe. Base score uses Value/Quality/Risk (weights 45%/30%/25%). If a component is missing, weights are re-normalized across available components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10): based on Avg $Vol 20d. We compute each stock's percentile rank of Avg $Vol 20d across the universe, then LiquidityBonus = 10 × percentile_rank. Avg $Vol 20d is the ~20 trading day average of (daily close × daily volume) in AUD. Missing liquidity data → bonus 0. Scores are relative and will shift each refresh.", headerTooltip:'Screener Score (0–100). Score = weighted average of available Value/Quality/Risk (weights 45/30/25) − completeness penalty + LiquidityBonus (0–10). Components are percentile-rank based across the universe and shift each refresh.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0.'', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
@@ -344,6 +339,14 @@ function bootUI(rows){
 
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
+
+      {title:"Div/Share", field:"Last Dividend / Share", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Div Yld Ann", field:"Dividend Yield (Announced)", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld Now", field:"Dividend Yield (Current)", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld Δ%", field:"Dividend Yield Δ%", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Held% Ins", field:"Held % Insiders", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Held% Inst", field:"Held % Institutions", formatter:(c)=>pct(num(c.getValue())), visible:false},
+
       {title:"BV/Share (Yahoo)", field:"Book Value / Share (Yahoo)", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
       {title:"RSI14", field:"RSI14", formatter:(c)=>fmt2(num(c.getValue()))},

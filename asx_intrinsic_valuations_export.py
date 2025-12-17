@@ -336,7 +336,14 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
-    res.update({"ddm_price": ddm_price, "dividend_yield": dividend_yield, "payout_ratio": payout_ratio})
+    res.update({
+        "ddm_price": ddm_price,
+        "dividend_rate": dividend_rate,
+        "dividend_yield": dividend_yield,
+        "payout_ratio": payout_ratio,
+        "last_dividend_value": safe_get(row, "lastDividendValue", np.nan),
+        "last_dividend_date": safe_get(row, "lastDividendDate", np.nan),
+    })
 
     epv_price = np.nan
     normalized_earnings = np.nan
@@ -796,6 +803,72 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
     else:
         tech = compute_technicals(pd.DataFrame(), benchmark_rets=None)
 
+
+    # ----------------------------------------------------------------------------------
+    # Dividend & ownership extras (for screening / income overlays)
+    # ----------------------------------------------------------------------------------
+    last_div = base.get("last_dividend_value", np.nan)
+    try:
+        last_div = float(last_div) if not np.isnan(last_div) else np.nan
+    except Exception:
+        last_div = np.nan
+
+    last_div_date = base.get("last_dividend_date", np.nan)
+    last_div_dt = None
+    try:
+        # Yahoo often returns epoch seconds
+        if not np.isnan(float(last_div_date)):
+            last_div_dt = datetime.fromtimestamp(int(float(last_div_date)), tz=ZoneInfo("UTC")).date()
+    except Exception:
+        last_div_dt = None
+
+    def _close_on_or_before_date(hist_df: pd.DataFrame, d: datetime.date) -> float:
+        try:
+            if hist_df is None or hist_df.empty:
+                return np.nan
+            idx = hist_df.index
+            # Normalize to dates
+            dates = pd.to_datetime(idx).date
+            # exact match
+            if d in set(dates):
+                # take last row for that date
+                row = hist_df[pd.to_datetime(idx).date == d].iloc[-1]
+                return float(row.get("Close", np.nan))
+            # nearest prior
+            prior_mask = [dd <= d for dd in dates]
+            if not any(prior_mask):
+                return np.nan
+            row = hist_df.iloc[[i for i,v in enumerate(prior_mask) if v][-1]]
+            return float(row.get("Close", np.nan))
+        except Exception:
+            return np.nan
+
+    div_yield_at_announce = np.nan
+    div_yield_current = np.nan
+    div_yield_diff_pct = np.nan
+
+    try:
+        if not np.isnan(last_div) and last_div > 0:
+            if last_div_dt is not None and 'hist' in locals() and hist is not None and not hist.empty:
+                announce_px = _close_on_or_before_date(hist, last_div_dt)
+                if not np.isnan(announce_px) and announce_px > 0:
+                    div_yield_at_announce = float(last_div / announce_px)
+            # current implied yield uses currentPrice
+            px_now = float(base.get("currentPrice", np.nan))
+            if not np.isnan(px_now) and px_now > 0:
+                div_yield_current = float(last_div / px_now)
+
+            if not np.isnan(div_yield_at_announce) and div_yield_at_announce > 0 and not np.isnan(div_yield_current):
+                div_yield_diff_pct = float((div_yield_current - div_yield_at_announce) / div_yield_at_announce)
+    except Exception:
+        pass
+
+    base["last_dividend_per_share"] = last_div
+    base["div_yield_announced"] = div_yield_at_announce
+    base["div_yield_current_implied"] = div_yield_current
+    base["div_yield_change_pct"] = div_yield_diff_pct
+    base["last_dividend_date"] = (str(last_div_dt) if last_div_dt is not None else "")
+
     # Output row (stable user-facing columns)
     out_row: Dict[str, Any] = {
         "Ticker": base["ticker"],
@@ -876,6 +949,14 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         "Held % Insiders": base.get("held_pct_insiders", np.nan),
         "Held % Institutions": base.get("held_pct_institutions", np.nan),
         "Short % Float": base.get("short_pct_float", np.nan),
+
+        "Dividend Rate (Yahoo)": base.get("dividend_rate", np.nan),
+        "Dividend Yield (Yahoo)": base.get("dividend_yield", np.nan),
+        "Last Dividend / Share": base.get("last_dividend_per_share", np.nan),
+        "Last Dividend Date": base.get("last_dividend_date", ""),
+        "Dividend Yield (Announced)": base.get("div_yield_announced", np.nan),
+        "Dividend Yield (Current)": base.get("div_yield_current_implied", np.nan),
+        "Dividend Yield Δ%": base.get("div_yield_change_pct", np.nan),
 
         "Reverse DCF Implied Growth": base.get("reverse_dcf_implied_growth", np.nan),
         "PEG Ratio": base.get("peg_ratio", np.nan),
@@ -1036,32 +1117,17 @@ def main() -> None:
     # Max Drawdown is negative; "less negative" is better.
     df["_r_mdd"] = _pct_rank(df.get("Max Drawdown (1y)", pd.Series(dtype=float)), ascending=True)
     risk_score = (0.45*df["_r_vol"] + 0.25*df["_r_atr"] + 0.30*df["_r_mdd"]) * 100.0
+
     # Liquidity bonus (avg $ volume)
     df["_liq"] = _pct_rank(df.get("Avg $Vol 20d", pd.Series(dtype=float)), ascending=True)
-    liquidity_bonus = (df["_liq"] * 10.0).fillna(0.0)  # +0 to +10 (missing liquidity -> 0)
+    liquidity_bonus = df["_liq"] * 10.0  # +0 to +10
+
     df["Liquidity Bonus"] = liquidity_bonus.round(2)
 
     df["Value Score"] = value_score.round(2)
     df["Quality Score"] = quality_score.round(2)
     df["Risk Score"] = risk_score.round(2)
-
-    # Fair handling of missing components:
-    # - If a component is missing (NaN), re-normalize weights across the available components.
-    # - Apply a small completeness penalty so a stock doesn't over-rank purely due to missing fields.
-    weights = pd.Series({"Value Score": 0.45, "Quality Score": 0.30, "Risk Score": 0.25})
-    comps = df[["Value Score", "Quality Score", "Risk Score"]].astype(float)
-
-    avail = comps.notna()
-    sumw = avail.mul(weights, axis=1).sum(axis=1)
-    base = comps.mul(weights, axis=1).sum(axis=1).div(sumw).where(sumw > 0)
-
-    coverage = (sumw / weights.sum()).fillna(0.0)   # 0..1
-    penalty = (1.0 - coverage) * 10.0              # up to 10 points penalty
-
-    df["Score Coverage"] = (coverage * 100.0).round(1)
-    df["Missing Component Penalty"] = penalty.round(2)
-
-    df["Screener Score"] = (base - penalty + liquidity_bonus).clip(0,100).round(2)
+    df["Screener Score"] = (0.45*value_score + 0.30*quality_score + 0.25*risk_score + liquidity_bonus).clip(0,100).round(2)
 
 
     # Output path (full workbook)
@@ -1129,8 +1195,15 @@ def main() -> None:
         "Book Value / Share (Assets-Liab)",
         "Book Value / Share (Yahoo)",
         "Profit Margin",
-        "Score Coverage",
-        "Missing Component Penalty"
+        "Dividend Rate (Yahoo)",
+        "Dividend Yield (Yahoo)",
+        "Last Dividend / Share",
+        "Last Dividend Date",
+        "Dividend Yield (Announced)",
+        "Dividend Yield (Current)",
+        "Dividend Yield Δ%",
+        "Held % Insiders",
+        "Held % Institutions"
     ]
     web_df = df[[c for c in WEB_COLS if c in df.columns]].copy()
 

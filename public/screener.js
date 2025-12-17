@@ -299,6 +299,49 @@ function wireColumnControls(){
   refresh();
 }
 
+
+function wireHorizontalScroll(){
+  const bar = document.getElementById("hscroll");
+  const inner = document.getElementById("hscrollInner");
+  const holder = document.querySelector("#table .tabulator-tableholder");
+  if(!bar || !inner || !holder) return;
+
+  // Ensure the table itself can scroll horizontally
+  holder.style.overflowX = "auto";
+
+  let lock = false;
+
+  const syncSize = ()=>{
+    inner.style.width = Math.max(holder.scrollWidth, holder.clientWidth) + "px";
+  };
+
+  const syncFromBar = ()=>{
+    if(lock) return;
+    lock = true;
+    holder.scrollLeft = bar.scrollLeft;
+    lock = false;
+  };
+
+  const syncFromTable = ()=>{
+    if(lock) return;
+    lock = true;
+    bar.scrollLeft = holder.scrollLeft;
+    lock = false;
+  };
+
+  bar.addEventListener("scroll", syncFromBar);
+  holder.addEventListener("scroll", syncFromTable);
+  window.addEventListener("resize", ()=>setTimeout(syncSize, 50));
+
+  if(table && table.on){
+    table.on("renderComplete", ()=>setTimeout(syncSize, 0));
+    table.on("columnVisibilityChanged", ()=>setTimeout(syncSize, 0));
+  }
+
+  syncSize();
+  syncFromTable();
+}
+
 function wireSliders(){
   const ids = ["xMin","xMax","yMin","yMax"];
   ids.forEach(id => {
@@ -437,6 +480,7 @@ function bootUI(rows){
   rebuildCharts(rows);
 
   wireColumnControls();
+  wireHorizontalScroll();
 
   // Click a row to see full score breakdown without cluttering the table.
   table.on("rowClick", function(e, row){

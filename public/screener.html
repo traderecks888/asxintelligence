@@ -53,6 +53,28 @@
 .tabulator .tabulator-header { overflow: visible; }
 
 
+
+  /* Horizontal scroll bar for very wide tables */
+  #tableWrap{
+    overflow-x: auto;
+    overflow-y: visible;
+    width: 100%;
+    border-radius: 12px;
+  }
+  #hscroll{
+    margin-top: 8px;
+    height: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.06);
+    scrollbar-gutter: stable both-edges;
+  }
+  #hscrollInner{
+    height: 1px;
+    width: 0px;
+  }
+
 </style>
 </head>
 
@@ -172,7 +194,12 @@
   </div>
 </details>
 
+    <div id="tableWrap">
     <div id="table"></div>
+  </div>
+  <div id="hscroll" aria-label="Horizontal table scroll">
+    <div id="hscrollInner"></div>
+  </div>
     <small>Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
   </div>
 

@@ -1036,17 +1036,32 @@ def main() -> None:
     # Max Drawdown is negative; "less negative" is better.
     df["_r_mdd"] = _pct_rank(df.get("Max Drawdown (1y)", pd.Series(dtype=float)), ascending=True)
     risk_score = (0.45*df["_r_vol"] + 0.25*df["_r_atr"] + 0.30*df["_r_mdd"]) * 100.0
-
     # Liquidity bonus (avg $ volume)
     df["_liq"] = _pct_rank(df.get("Avg $Vol 20d", pd.Series(dtype=float)), ascending=True)
-    liquidity_bonus = df["_liq"] * 10.0  # +0 to +10
-
+    liquidity_bonus = (df["_liq"] * 10.0).fillna(0.0)  # +0 to +10 (missing liquidity -> 0)
     df["Liquidity Bonus"] = liquidity_bonus.round(2)
 
     df["Value Score"] = value_score.round(2)
     df["Quality Score"] = quality_score.round(2)
     df["Risk Score"] = risk_score.round(2)
-    df["Screener Score"] = (0.45*value_score + 0.30*quality_score + 0.25*risk_score + liquidity_bonus).clip(0,100).round(2)
+
+    # Fair handling of missing components:
+    # - If a component is missing (NaN), re-normalize weights across the available components.
+    # - Apply a small completeness penalty so a stock doesn't over-rank purely due to missing fields.
+    weights = pd.Series({"Value Score": 0.45, "Quality Score": 0.30, "Risk Score": 0.25})
+    comps = df[["Value Score", "Quality Score", "Risk Score"]].astype(float)
+
+    avail = comps.notna()
+    sumw = avail.mul(weights, axis=1).sum(axis=1)
+    base = comps.mul(weights, axis=1).sum(axis=1).div(sumw).where(sumw > 0)
+
+    coverage = (sumw / weights.sum()).fillna(0.0)   # 0..1
+    penalty = (1.0 - coverage) * 10.0              # up to 10 points penalty
+
+    df["Score Coverage"] = (coverage * 100.0).round(1)
+    df["Missing Component Penalty"] = penalty.round(2)
+
+    df["Screener Score"] = (base - penalty + liquidity_bonus).clip(0,100).round(2)
 
 
     # Output path (full workbook)
@@ -1113,7 +1128,9 @@ def main() -> None:
         "Book Value (Total, Assets-Liab)",
         "Book Value / Share (Assets-Liab)",
         "Book Value / Share (Yahoo)",
-        "Profit Margin"
+        "Profit Margin",
+        "Score Coverage",
+        "Missing Component Penalty"
     ]
     web_df = df[[c for c in WEB_COLS if c in df.columns]].copy()
 

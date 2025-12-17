@@ -330,7 +330,7 @@ function bootUI(rows){
       {title:"Company", field:"Company", minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Score = 0.45·Value + 0.30·Quality + 0.25·Risk + LiquidityBonus (0–10). Components are percentile-rank based across the universe and shift each refresh.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Score = weighted average of available Value/Quality/Risk (weights 45/30/25) − completeness penalty + LiquidityBonus (0–10). Components are percentile-rank based across the universe and shift each refresh.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},

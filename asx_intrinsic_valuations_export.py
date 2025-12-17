@@ -1102,7 +1102,7 @@ def main() -> None:
         "ROE","P/B","Net Debt/EBITDA",
         "MOS Buy Price","Margin of Safety",
         "Data Quality Score",
-        "As Of",,
+        "As Of",
         "Screener Score",
         "Value Score",
         "Quality Score",

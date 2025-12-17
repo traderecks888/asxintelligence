@@ -26,6 +26,10 @@
     a{color:#0b57d0;text-decoration:none}
     #err{display:none;margin-top:10px;padding:10px;border:1px solid #f1c40f;border-radius:12px;background:#fff7e6}
     #err code{background:#fff3cd;padding:2px 6px;border-radius:8px}
+    details{margin-top:10px}
+    .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+    .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
+    input[type="range"]{width:100%}
   </style>
 </head>
 
@@ -42,11 +46,18 @@
     <div class="card"><div><small>Universe rows</small></div><div id="kpiRows" style="font-size:22px;font-weight:700;">–</div></div>
     <div class="card"><div><small>Median DCF discount</small></div><div id="kpiDCF" style="font-size:22px;font-weight:700;">–</div></div>
     <div class="card"><div><small>Median FCF yield</small></div><div id="kpiFCF" style="font-size:22px;font-weight:700;">–</div></div>
-    <div class="card"><div><small>Median Undervalued count</small></div><div id="kpiUC" style="font-size:22px;font-weight:700;">–</div></div>
+    <div class="card"><div><small>Median Screener score</small></div><div id="kpiScore" style="font-size:22px;font-weight:700;">–</div></div>
   </div>
 
   <div class="card" style="margin-top:12px;">
     <div class="topbar" style="margin:0;">
+      <select id="preset" title="Preset">
+        <option value="">Preset: (none)</option>
+        <option value="deep_value">Deep value (liquid)</option>
+        <option value="quality">Quality compounders</option>
+        <option value="mean_reversion">Mean reversion (oversold)</option>
+      </select>
+
       <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
       <select id="sector"></select>
 
@@ -59,14 +70,56 @@
       <button id="dl" class="secondary">Download filtered CSV</button>
     </div>
 
+    <details>
+      <summary><strong>Advanced filters</strong> <small>(useful for presets)</small></summary>
+      <div class="topbar" style="margin-top:10px;">
+        <input id="minROE" type="number" step="0.01" placeholder="Min ROE (e.g. 0.15)">
+        <input id="maxND" type="number" step="0.1" placeholder="Max NetDebt/EBITDA (e.g. 2.0)">
+        <input id="minDV" type="number" step="10000" placeholder="Min Avg $Vol 20d (e.g. 250000)">
+        <input id="maxVol" type="number" step="0.01" placeholder="Max Vol20 ann (e.g. 0.5)">
+        <input id="maxATR" type="number" step="0.005" placeholder="Max ATR% (e.g. 0.06)">
+        <input id="minScore" type="number" step="1" placeholder="Min Screener score (0-100)">
+      </div>
+    </details>
+
     <div class="charts">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong>DCF discount vs FCF yield</strong>
-          <small>(bubble size ~ market cap)</small>
+          <small>(sliders adjust view)</small>
         </div>
+
+        <div class="sliders">
+          <div>
+            <div class="sliderRow">
+              <label>DCF Disc min</label>
+              <input id="xMin" type="range" min="-1" max="2" step="0.01" value="-0.5">
+              <div id="xMinV">-50%</div>
+            </div>
+            <div class="sliderRow">
+              <label>DCF Disc max</label>
+              <input id="xMax" type="range" min="-1" max="2" step="0.01" value="1.0">
+              <div id="xMaxV">100%</div>
+            </div>
+          </div>
+          <div>
+            <div class="sliderRow">
+              <label>FCF Yield min</label>
+              <input id="yMin" type="range" min="0" max="0.5" step="0.005" value="0">
+              <div id="yMinV">0%</div>
+            </div>
+            <div class="sliderRow">
+              <label>FCF Yield max</label>
+              <input id="yMax" type="range" min="0" max="0.5" step="0.005" value="0.25">
+              <div id="yMaxV">25%</div>
+            </div>
+          </div>
+        </div>
+
         <canvas id="scatter"></canvas>
+        <small>Tip: hover near a bubble; tooltip uses “nearest” mode so you don’t need pixel-perfect clicks.</small>
       </div>
+
       <div class="card">
         <strong>Undervalued methods count distribution</strong>
         <canvas id="hist"></canvas>
@@ -74,12 +127,11 @@
     </div>
 
     <div id="table"></div>
-    <small>Tip: sort by “Undervalued Methods Count”, then “DCF Disc”, then “FCF Yield”.</small>
+    <small>Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
   </div>
 
   <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <!-- cache-bust -->
-  <script src="/screener.js?v=0.43"></script>
+  <script src="/screener.js?v=0.50"></script>
 </body>
 </html>

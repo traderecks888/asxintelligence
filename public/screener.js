@@ -9,6 +9,7 @@ function fmt2(x){ return Number.isFinite(x) ? x.toFixed(2) : "–"; }
 function fmtInt(x){ return Number.isFinite(x) ? Math.round(x).toLocaleString() : "–"; }
 
 let raw = [];
+let filteredNow = [];
 let table = null;
 let scatterChart = null;
 let histChart = null;
@@ -20,6 +21,20 @@ function showErr(msg){
   el.style.display = "block";
   el.innerHTML = msg;
 }
+function hideErr(){ const el = document.getElementById("err"); if(el) el.style.display="none"; }
+
+function formatWhen(s){
+  if(!s) return "";
+  try{
+    const d = new Date(s);
+    return new Intl.DateTimeFormat(undefined,{
+      weekday:"short", year:"numeric", month:"short", day:"2-digit",
+      hour:"2-digit", minute:"2-digit"
+    }).format(d);
+  }catch(e){
+    return s;
+  }
+}
 
 async function fetchJson(url){
   const r = await fetch(url, {cache:"no-store"});
@@ -27,27 +42,104 @@ async function fetchJson(url){
   return await r.json();
 }
 
+function num(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function applyPreset(){
+  const p = document.getElementById("preset").value;
+  const set = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+
+  if(p === "deep_value"){
+    set("minMcap", 50_000_000);
+    set("minFcf", 0.05);
+    set("minU", 2);
+    set("minDV", 250_000);
+    set("minROE", "");
+    set("maxND", 3.5);
+    set("maxVol", "");
+    set("maxATR", "");
+    set("minScore", 55);
+  } else if(p === "quality"){
+    set("minMcap", 100_000_000);
+    set("minFcf", 0.02);
+    set("minU", 0);
+    set("minROE", 0.15);
+    set("maxND", 2.0);
+    set("minDV", 250_000);
+    set("maxVol", 0.55);
+    set("maxATR", 0.07);
+    set("minScore", 60);
+  } else if(p === "mean_reversion"){
+    set("minMcap", 50_000_000);
+    set("minFcf", "");
+    set("minU", 0);
+    set("minROE", "");
+    set("maxND", "");
+    set("minDV", 150_000);
+    set("maxVol", "");
+    set("maxATR", "");
+    set("minScore", 45);
+  }
+}
+
+function sliderLabel(id, val){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.textContent = pct(val);
+}
+
+function getChartWindow(){
+  const xMin = num(document.getElementById("xMin").value);
+  const xMax = num(document.getElementById("xMax").value);
+  const yMin = num(document.getElementById("yMin").value);
+  const yMax = num(document.getElementById("yMax").value);
+  return {xMin, xMax, yMin, yMax};
+}
+
+function wireSliders(){
+  const ids = ["xMin","xMax","yMin","yMax"];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener("input", () => {
+      const win = getChartWindow();
+      sliderLabel("xMinV", win.xMin);
+      sliderLabel("xMaxV", win.xMax);
+      sliderLabel("yMinV", win.yMin);
+      sliderLabel("yMaxV", win.yMax);
+      rebuildCharts(filteredNow.length ? filteredNow : raw);
+    });
+  });
+
+  const win = getChartWindow();
+  sliderLabel("xMinV", win.xMin);
+  sliderLabel("xMaxV", win.xMax);
+  sliderLabel("yMinV", win.yMin);
+  sliderLabel("yMaxV", win.yMax);
+}
+
 async function load(){
   try{
+    hideErr();
+
     let m = null;
     try { m = await fetchJson("/data/manifest.json"); } catch(e) {}
-    setMeta(m ? `Last update: ${m.generated_at_local} • Rows: ${m.rows}` : "Loading dataset…");
+    const when = m ? formatWhen(m.generated_at_perth || m.generated_at_local || m.generated_at_utc) : "";
+    setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : "Loading dataset…");
 
-    // Prefer the small web JSON for UI speed; fallback to full JSON.
     let rows = null;
-    try{
-      rows = await fetchJson("/data/latest_web.json");
-    }catch(e1){
-      rows = await fetchJson("/data/latest.json");
-    }
+    try{ rows = await fetchJson("/data/latest_web.json"); }
+    catch(e1){ rows = await fetchJson("/data/latest.json"); }
 
-    if(!Array.isArray(rows) || rows.length === 0){
-      throw new Error("Dataset loaded but appears empty.");
-    }
+    if(!Array.isArray(rows) || rows.length === 0) throw new Error("Dataset loaded but appears empty.");
 
     raw = rows;
+    filteredNow = rows;
+
     bootUI(raw);
-    setMeta(m ? `Last update: ${m.generated_at_local} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
+    setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
   }catch(err){
     console.error(err);
     setMeta("Error loading dataset");
@@ -60,16 +152,14 @@ async function load(){
 }
 
 function bootUI(rows){
-  // sector dropdown
   const sectors = Array.from(new Set(rows.map(r => r["Sector"]).filter(Boolean))).sort();
   const sel = document.getElementById("sector");
   if(sel) sel.innerHTML = `<option value="">All sectors</option>` + sectors.map(s=>`<option>${s}</option>`).join("");
 
-  // KPIs
   document.getElementById("kpiRows").textContent = rows.length.toLocaleString();
-  document.getElementById("kpiDCF").textContent = pct(median(rows.map(r => r["DCF Premium/(Discount)"])));
-  document.getElementById("kpiFCF").textContent = pct(median(rows.map(r => r["FCF Yield"])));
-  document.getElementById("kpiUC").textContent = fmt2(median(rows.map(r => r["Undervalued Methods Count"])));
+  document.getElementById("kpiDCF").textContent = pct(median(rows.map(r => num(r["DCF Premium/(Discount)"]))));
+  document.getElementById("kpiFCF").textContent = pct(median(rows.map(r => num(r["FCF Yield"]))));
+  document.getElementById("kpiScore").textContent = fmt2(median(rows.map(r => num(r["Screener Score"]))));
 
   table = new Tabulator("#table", {
     data: rows,
@@ -79,6 +169,7 @@ function bootUI(rows){
     paginationSize: 50,
     movableColumns: true,
     initialSort: [
+      {column:"Screener Score", dir:"desc"},
       {column:"Undervalued Methods Count", dir:"desc"},
       {column:"DCF Premium/(Discount)", dir:"desc"},
       {column:"FCF Yield", dir:"desc"},
@@ -88,39 +179,48 @@ function bootUI(rows){
       {title:"Company", field:"Company", minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Price", field:"Price", formatter:(c)=>fmt2(c.getValue())},
-      {title:"Mkt Cap", field:"Market Cap", formatter:(c)=>fmtInt(c.getValue())},
+      {title:"Score", field:"Screener Score", formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Value", field:"Value Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Quality", field:"Quality Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Risk", field:"Risk Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
-      {title:"DCF", field:"DCF Price (5yr)", formatter:(c)=>fmt2(c.getValue())},
-      {title:"DCF Disc", field:"DCF Premium/(Discount)", formatter:(c)=>pct(c.getValue())},
-      {title:"FCF Yield", field:"FCF Yield", formatter:(c)=>pct(c.getValue())},
+      {title:"Price", field:"Price", formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Mkt Cap", field:"Market Cap", formatter:(c)=>fmtInt(num(c.getValue()))},
+
+      {title:"DCF Disc", field:"DCF Premium/(Discount)", formatter:(c)=>pct(num(c.getValue()))},
+      {title:"FCF Yield", field:"FCF Yield", formatter:(c)=>pct(num(c.getValue()))},
       {title:"U Count", field:"Undervalued Methods Count"},
 
-      {title:"RSI14", field:"RSI14", formatter:(c)=>fmt2(c.getValue())},
-      {title:"ATR%", field:"ATR% (14)", formatter:(c)=>pct(c.getValue())},
-      {title:"Vol20", field:"Vol (20d, ann)", formatter:(c)=>pct(c.getValue())},
-      {title:"MDD", field:"Max Drawdown (1y)", formatter:(c)=>pct(c.getValue())},
+      {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
+      {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"BV/Share (Yahoo)", field:"Book Value / Share (Yahoo)", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
-      {title:"% from 52W High", field:"% From 52W High", formatter:(c)=>pct(c.getValue()), visible:false},
-      {title:"% from 52W Low", field:"% From 52W Low", formatter:(c)=>pct(c.getValue()), visible:false},
+      {title:"RSI14", field:"RSI14", formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"ATR%", field:"ATR% (14)", formatter:(c)=>pct(num(c.getValue()))},
+      {title:"Vol20", field:"Vol (20d, ann)", formatter:(c)=>pct(num(c.getValue()))},
+      {title:"MDD", field:"Max Drawdown (1y)", formatter:(c)=>pct(num(c.getValue()))},
 
-      {title:"Ret 3m", field:"Return 3m", formatter:(c)=>pct(c.getValue()), visible:false},
-      {title:"Ret 12m", field:"Return 12m", formatter:(c)=>pct(c.getValue()), visible:false},
-
-      {title:"Beta", field:"Beta vs Benchmark (1y)", formatter:(c)=>fmt2(c.getValue()), visible:false},
-      {title:"Data Q", field:"Data Quality Score", formatter:(c)=>fmt2(c.getValue()), visible:false},
+      {title:"Avg $Vol 20d", field:"Avg $Vol 20d", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
+      {title:"NetDebt/EBITDA", field:"Net Debt/EBITDA", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"ROE", field:"ROE", formatter:(c)=>pct(num(c.getValue())), visible:false},
     ],
   });
 
+  wireSliders();
   rebuildCharts(rows);
+
+  document.getElementById("preset").addEventListener("change", () => {
+    applyPreset();
+    applyFilters();
+  });
 
   document.getElementById("apply").onclick = applyFilters;
   document.getElementById("reset").onclick = () => {
-    document.getElementById("q").value = "";
-    document.getElementById("sector").value = "";
-    document.getElementById("minMcap").value = "";
-    document.getElementById("minFcf").value = "";
-    document.getElementById("minU").value = "";
+    document.getElementById("preset").value = "";
+    ["q","sector","minMcap","minFcf","minU","minROE","maxND","minDV","maxVol","maxATR","minScore"].forEach(id=>{
+      const el = document.getElementById(id); if(el) el.value = "";
+    });
+    filteredNow = raw;
     table.setData(raw);
     rebuildCharts(raw);
   };
@@ -133,37 +233,81 @@ function bootUI(rows){
 function applyFilters(){
   const q = document.getElementById("q").value.trim().toLowerCase();
   const sector = document.getElementById("sector").value;
-  const minMcap = Number(document.getElementById("minMcap").value);
-  const minFcf  = Number(document.getElementById("minFcf").value);
-  const minU    = Number(document.getElementById("minU").value);
 
-  const filtered = raw.filter(r => {
+  const minMcap = num(document.getElementById("minMcap").value);
+  const minFcf  = num(document.getElementById("minFcf").value);
+  const minU    = num(document.getElementById("minU").value);
+
+  const minROE  = num(document.getElementById("minROE").value);
+  const maxND   = num(document.getElementById("maxND").value);
+  const minDV   = num(document.getElementById("minDV").value);
+  const maxVol  = num(document.getElementById("maxVol").value);
+  const maxATR  = num(document.getElementById("maxATR").value);
+  const minScore = num(document.getElementById("minScore").value);
+
+  const preset = document.getElementById("preset").value;
+
+  const out = raw.filter(r => {
     if(q){
       const t = String(r["Ticker"]||"").toLowerCase();
       const c = String(r["Company"]||"").toLowerCase();
       if(!t.includes(q) && !c.includes(q)) return false;
     }
     if(sector && r["Sector"] !== sector) return false;
-    if(Number.isFinite(minMcap) && Number.isFinite(r["Market Cap"]) && r["Market Cap"] < minMcap) return false;
-    if(Number.isFinite(minFcf) && Number.isFinite(r["FCF Yield"]) && r["FCF Yield"] < minFcf) return false;
-    if(Number.isFinite(minU) && Number.isFinite(r["Undervalued Methods Count"]) && r["Undervalued Methods Count"] < minU) return false;
+
+    const mcap = num(r["Market Cap"]);
+    const fcfy = num(r["FCF Yield"]);
+    const ucnt = num(r["Undervalued Methods Count"]);
+    const roe  = num(r["ROE"]);
+    const nd   = num(r["Net Debt/EBITDA"]);
+    const dv   = num(r["Avg $Vol 20d"]);
+    const vol  = num(r["Vol (20d, ann)"]);
+    const atr  = num(r["ATR% (14)"]);
+    const score = num(r["Screener Score"]);
+    const rsi = num(r["RSI14"]);
+    const fromHigh = num(r["% From 52W High"]);
+
+    if(Number.isFinite(minMcap) && Number.isFinite(mcap) && mcap < minMcap) return false;
+    if(Number.isFinite(minFcf) && Number.isFinite(fcfy) && fcfy < minFcf) return false;
+    if(Number.isFinite(minU) && Number.isFinite(ucnt) && ucnt < minU) return false;
+
+    if(Number.isFinite(minROE) && Number.isFinite(roe) && roe < minROE) return false;
+    if(Number.isFinite(maxND) && Number.isFinite(nd) && nd > maxND) return false;
+    if(Number.isFinite(minDV) && Number.isFinite(dv) && dv < minDV) return false;
+    if(Number.isFinite(maxVol) && Number.isFinite(vol) && vol > maxVol) return false;
+    if(Number.isFinite(maxATR) && Number.isFinite(atr) && atr > maxATR) return false;
+    if(Number.isFinite(minScore) && Number.isFinite(score) && score < minScore) return false;
+
+    if(preset === "mean_reversion"){
+      if(Number.isFinite(rsi) && rsi > 35) return false;
+      if(Number.isFinite(fromHigh) && fromHigh > -0.20) return false;
+    }
+
     return true;
   });
 
-  table.setData(filtered);
-  rebuildCharts(filtered);
+  filteredNow = out;
+  table.setData(out);
+  rebuildCharts(out);
+
+  document.getElementById("kpiRows").textContent = out.length.toLocaleString();
+  document.getElementById("kpiDCF").textContent = pct(median(out.map(r => num(r["DCF Premium/(Discount)"]))));
+  document.getElementById("kpiFCF").textContent = pct(median(out.map(r => num(r["FCF Yield"]))));
+  document.getElementById("kpiScore").textContent = fmt2(median(out.map(r => num(r["Screener Score"]))));
 }
 
 function rebuildCharts(rows){
-  // Scatter: sample top N by market cap to keep Chart.js snappy
+  const win = getChartWindow();
+
   const ptsAll = rows
     .map(r => ({
-      x: r["DCF Premium/(Discount)"],
-      y: r["FCF Yield"],
-      m: Number(r["Market Cap"]) || 0,
+      x: num(r["DCF Premium/(Discount)"]),
+      y: num(r["FCF Yield"]),
+      m: num(r["Market Cap"]) || 0,
       label: r["Ticker"]
     }))
-    .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+    .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y))
+    .filter(p => p.x >= win.xMin && p.x <= win.xMax && p.y >= win.yMin && p.y <= win.yMax);
 
   ptsAll.sort((a,b)=>b.m-a.m);
   const N = Math.min(900, ptsAll.length);
@@ -178,23 +322,25 @@ function rebuildCharts(rows){
   if(scatterChart) scatterChart.destroy();
   scatterChart = new Chart(scatterCtx, {
     type: "bubble",
-    data: { datasets: [{ label: `Top ${N} by mkt cap`, data: pts }]},
+    data: { datasets: [{ label: `Top ${N} by mkt cap (in view)`, data: pts }]},
     options: {
       parsing:false,
+      interaction:{ mode:"nearest", intersect:false },
       plugins:{ tooltip:{
         callbacks:{
           label:(ctx)=> `${ctx.raw.label}: DCF ${pct(ctx.raw.x)} • FCF ${pct(ctx.raw.y)}`
         }
       }},
       scales:{
-        x:{ title:{display:true,text:"DCF premium/(discount)"} },
-        y:{ title:{display:true,text:"FCF yield"} }
+        x:{ title:{display:true,text:"DCF premium/(discount)"},
+            min: win.xMin, max: win.xMax },
+        y:{ title:{display:true,text:"FCF yield"},
+            min: win.yMin, max: win.yMax }
       }
     }
   });
 
-  // Histogram
-  const counts = rows.map(r => r["Undervalued Methods Count"]).filter(Number.isFinite);
+  const counts = rows.map(r => num(r["Undervalued Methods Count"])).filter(Number.isFinite);
   const max = counts.length ? Math.max(...counts) : 0;
   const bins = Array.from({length: max+1}, (_,i)=>i);
   const freq = bins.map(b => counts.filter(x=>x===b).length);

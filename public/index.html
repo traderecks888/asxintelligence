@@ -25,11 +25,8 @@
         <a class="btn" href="/screener.html">Open Visual Screener</a>
         <small id="meta">Loading dataset info…</small>
       </div>
-      <p>
-        This site serves the latest monthly refresh outputs from <code>public/data</code>.
-        If your links 404, run the GitHub Action once so <code>public/data/latest.*</code> exists.
-      </p>
-      <p><small>Tip: keep the site invite-only with Cloudflare Access (Zero Trust).</small></p>
+      <p>This site serves the latest monthly refresh outputs from <code>public/data</code>.</p>
+      <p><small>Lock down with Cloudflare Access (invite-only) before sharing the URL.</small></p>
     </div>
 
     <div class="card">
@@ -44,17 +41,26 @@
         <li><a href="/data/latest.parquet">latest.parquet</a> (Parquet, if enabled)</li>
         <li><a href="/data/manifest.json">manifest.json</a> (run metadata)</li>
       </ul>
-      <p><small>If Excel ever gets too big, your pipeline still writes the full timestamped workbook under <code>data/valuations/</code>.</small></p>
     </div>
   </div>
 
   <script>
+    function fmt(dt){
+      try{
+        const d = new Date(dt);
+        return new Intl.DateTimeFormat(undefined,{
+          year:"numeric",month:"short",day:"2-digit",
+          hour:"2-digit",minute:"2-digit"
+        }).format(d);
+      }catch(e){ return dt; }
+    }
     fetch('/data/manifest.json', {cache:'no-store'})
       .then(r => r.ok ? r.json() : null)
       .then(m => {
         if (!m) return;
+        const t = m.generated_at_perth || m.generated_at_local || m.generated_at_utc || "";
         document.getElementById('meta').textContent =
-          `Last update: ${m.generated_at_local} • Rows: ${m.rows} • Cols: ${m.columns}`;
+          `Last update: ${fmt(t)} • Rows: ${m.rows} • Cols: ${m.columns}`;
       })
       .catch(()=>{});
   </script>

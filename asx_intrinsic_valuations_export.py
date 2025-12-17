@@ -39,6 +39,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -1002,6 +1003,50 @@ def main() -> None:
             df.rename(columns={"products": "Products (Materials/Energy)", "stage": "Stage (Materials/Energy)"}, inplace=True)
         df.drop(columns=["_ticker_norm"], inplace=True)
 
+    
+    # ----------------------------------------------------------------------------------
+    # Screener scoring (0-100): Value + Quality + Risk (+ liquidity)
+    # ----------------------------------------------------------------------------------
+    def _pct_rank(s: pd.Series, ascending: bool = True) -> pd.Series:
+        s2 = pd.to_numeric(s, errors="coerce")
+        return s2.rank(pct=True, ascending=ascending)
+
+    # Value: DCF discount, FCF yield, MOS upside, low P/B
+    df["_v_dcf"] = _pct_rank(df.get("DCF Premium/(Discount)", pd.Series(dtype=float)), ascending=True)
+    df["_v_fcf"] = _pct_rank(df.get("FCF Yield", pd.Series(dtype=float)), ascending=True)
+    mos_up = np.where(
+        (pd.to_numeric(df.get("Price", np.nan), errors="coerce") > 0) & pd.notnull(df.get("MOS Buy Price")),
+        (pd.to_numeric(df.get("MOS Buy Price"), errors="coerce") - pd.to_numeric(df.get("Price"), errors="coerce")) / pd.to_numeric(df.get("Price"), errors="coerce"),
+        np.nan
+    )
+    df["_v_mos"] = pd.Series(mos_up).rank(pct=True, ascending=True)
+    df["_v_pb"]  = 1.0 - _pct_rank(df.get("P/B", pd.Series(dtype=float)), ascending=True)  # lower is better
+
+    value_score = (0.40*df["_v_dcf"] + 0.30*df["_v_fcf"] + 0.20*df["_v_mos"] + 0.10*df["_v_pb"]) * 100.0
+
+    # Quality: ROE, profit margin, low leverage
+    df["_q_roe"] = _pct_rank(df.get("ROE", pd.Series(dtype=float)), ascending=True)
+    df["_q_pm"]  = _pct_rank(df.get("Profit Margin", pd.Series(dtype=float)), ascending=True)
+    df["_q_nd"]  = 1.0 - _pct_rank(df.get("Net Debt/EBITDA", pd.Series(dtype=float)), ascending=True)  # lower is better
+    quality_score = (0.55*df["_q_roe"] + 0.30*df["_q_pm"] + 0.15*df["_q_nd"]) * 100.0
+
+    # Risk: lower vol, lower ATR%, smaller drawdowns
+    df["_r_vol"] = 1.0 - _pct_rank(df.get("Vol (20d, ann)", pd.Series(dtype=float)), ascending=True)
+    df["_r_atr"] = 1.0 - _pct_rank(df.get("ATR% (14)", pd.Series(dtype=float)), ascending=True)
+    # Max Drawdown is negative; "less negative" is better.
+    df["_r_mdd"] = _pct_rank(df.get("Max Drawdown (1y)", pd.Series(dtype=float)), ascending=True)
+    risk_score = (0.45*df["_r_vol"] + 0.25*df["_r_atr"] + 0.30*df["_r_mdd"]) * 100.0
+
+    # Liquidity bonus (avg $ volume)
+    df["_liq"] = _pct_rank(df.get("Avg $Vol 20d", pd.Series(dtype=float)), ascending=True)
+    liquidity_bonus = df["_liq"] * 10.0  # +0 to +10
+
+    df["Value Score"] = value_score.round(2)
+    df["Quality Score"] = quality_score.round(2)
+    df["Risk Score"] = risk_score.round(2)
+    df["Screener Score"] = (0.45*value_score + 0.30*quality_score + 0.25*risk_score + liquidity_bonus).clip(0,100).round(2)
+
+
     # Output path (full workbook)
     if args.output_xlsx:
         out_xlsx = Path(args.output_xlsx).resolve()
@@ -1057,7 +1102,15 @@ def main() -> None:
         "ROE","P/B","Net Debt/EBITDA",
         "MOS Buy Price","Margin of Safety",
         "Data Quality Score",
-        "As Of",
+        "As Of",,
+        "Screener Score",
+        "Value Score",
+        "Quality Score",
+        "Risk Score",
+        "Book Value (Total, Assets-Liab)",
+        "Book Value / Share (Assets-Liab)",
+        "Book Value / Share (Yahoo)",
+        "Profit Margin"
     ]
     web_df = df[[c for c in WEB_COLS if c in df.columns]].copy()
 
@@ -1087,7 +1140,13 @@ def main() -> None:
             except Exception:
                 pass
 
+    perth = ZoneInfo("Australia/Perth")
+    generated_utc = datetime.now(ZoneInfo("UTC")).isoformat(timespec="seconds")
+    generated_perth = datetime.now(perth).isoformat(timespec="seconds")
+
     manifest = {
+        "generated_at_utc": generated_utc,
+        "generated_at_perth": generated_perth,
         "generated_at_local": datetime.now().isoformat(timespec="seconds"),
         "rows": int(df.shape[0]),
         "columns": int(df.shape[1]),

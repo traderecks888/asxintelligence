@@ -76,6 +76,18 @@
       <button id="apply">Apply</button>
       <button id="reset" class="secondary">Reset</button>
       <button id="dl" class="secondary">Download filtered CSV</button>
+      <details id="colControls" style="margin-left:8px;">
+        <summary style="cursor:pointer;"><strong>Columns</strong></summary>
+        <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;">
+          <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
+          <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
+          <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
+        </div>
+        <small style="display:block;margin-top:8px;color:#666;">
+          Tip: keep “key” on for a clean table; turn on “all” when doing deep dives.
+        </small>
+      </details>
+
     </div>
 
     <details>

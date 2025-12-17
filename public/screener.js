@@ -121,7 +121,7 @@ function renderScoreDetails(d){
         <div class="card">
           <strong>How the score is formed</strong>
           <div style="margin-top:6px;">
-            <small>Screener Score is a composite (0–100).<br>Base score uses component scores (0–100): Value (45%), Quality (30%), Risk (25%).<br>If a component is missing (NaN), weights are re-normalized across what exists and a small completeness penalty (up to 10 pts) is applied.<br><br><strong>Liquidity Bonus (0–10)</strong><br>Avg $Vol 20d ≈ mean over ~20 trading days of (Close × Volume) in AUD.<br>LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the ASX universe (0=least liquid, 10=most liquid).<br>Missing liquidity → bonus 0.<br></small>
+            <small>Screener Score is a composite (0–100) built at refresh time — the UI does not recompute it.<br><br><strong>1) Component scores (each 0–100)</strong><br><strong>Value (45%)</strong>: percentile ranks of <em>DCF discount</em>, <em>FCF yield</em>, <em>MOS upside</em> (from MOS Buy Price vs Price), and <em>low P/B</em>.<br><strong>Quality (30%)</strong>: percentile ranks of <em>ROE</em>, <em>profit margin</em>, and <em>low net debt/EBITDA</em>.<br><strong>Risk (25%)</strong>: percentile ranks favoring <em>lower volatility (Vol 20d)</em>, <em>lower ATR%</em>, and <em>smaller drawdowns</em>.<br><br><strong>2) Missing data handling</strong><br>If Value/Quality/Risk inputs are missing, weights are re-normalized across available components and a small completeness penalty may apply (depending on your pipeline version).<br><br><strong>3) Liquidity Bonus (0–10)</strong><br>Avg $Vol 20d ≈ mean over ~20 trading days of (Close × Volume) in AUD.<br>LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the ASX universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0.</small>
           </div>
           <div style="margin-top:10px;">
             <small>
@@ -228,6 +228,71 @@ function getChartWindow(){
   const yMin = num(document.getElementById("yMin").value);
   const yMax = num(document.getElementById("yMax").value);
   return {xMin, xMax, yMin, yMax};
+}
+
+
+function wireColumnControls(){
+  const key = document.getElementById("colShowIncome");
+  const allDiv = document.getElementById("colShowAllDiv");
+  const allHold = document.getElementById("colShowAllHold");
+  if(!table) return;
+
+  // Column groups
+  const keyIncome = [
+    "Dividend Yield (Current)",
+    "Dividend Yield Δ%",
+    "Held % Insiders",
+    "Held % Institutions",
+  ];
+  const allDividend = [
+    "Dividend Rate (Yahoo)",
+    "Dividend Yield (Yahoo)",
+    "Last Dividend / Share",
+    "Last Dividend Date",
+    "Dividend Yield (Announced)",
+    "Dividend Yield (Current)",
+    "Dividend Yield Δ%",
+  ];
+  const allHoldings = [
+    "Held % Insiders",
+    "Held % Institutions",
+  ];
+
+  const showFields = (fields, show) => {
+    fields.forEach(f=>{
+      const col = table.getColumn(f);
+      if(!col) return;
+      try{ show ? col.show() : col.hide(); }catch(e){}
+    });
+  };
+
+  const refresh = ()=>{
+    // Base: hide all dividend/holdings except key set (which is on by default)
+    showFields(allDividend, false);
+    showFields(allHoldings, false);
+
+    // Key toggle
+    if(key && key.checked){
+      showFields(keyIncome, true);
+    }
+
+    // All toggles override
+    if(allDiv && allDiv.checked){
+      showFields(allDividend, true);
+    }
+    if(allHold && allHold.checked){
+      showFields(allHoldings, true);
+    }
+  };
+
+  // Default states (if elements exist)
+  if(key && key.checked === false) key.checked = true;
+
+  if(key) key.addEventListener("change", refresh);
+  if(allDiv) allDiv.addEventListener("change", refresh);
+  if(allHold) allHold.addEventListener("change", refresh);
+
+  refresh();
 }
 
 function wireSliders(){
@@ -342,10 +407,10 @@ function bootUI(rows){
 
       {title:"Div/Share", field:"Last Dividend / Share", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Div Yld Ann", field:"Dividend Yield (Announced)", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Now", field:"Dividend Yield (Current)", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Δ%", field:"Dividend Yield Δ%", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Held% Ins", field:"Held % Insiders", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Held% Inst", field:"Held % Institutions", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld Now", field:"Dividend Yield (Current)", headerTooltip:'Implied yield now = (last dividend per share) ÷ (current price).', formatter:(c)=>pct(num(c.getValue())), visible:true},
+      {title:"Div Yld Δ%", field:"Dividend Yield Δ%", headerTooltip:'Relative change vs announcement: (YieldNow − YieldAtAnnouncement) ÷ YieldAtAnnouncement.', formatter:(c)=>pct(num(c.getValue())), visible:true},
+      {title:"Held% Ins", field:"Held % Insiders", headerTooltip:'Estimated % of shares held by insiders (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:true},
+      {title:"Held% Inst", field:"Held % Institutions", headerTooltip:'Estimated % of shares held by institutions (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:true},
 
       {title:"BV/Share (Yahoo)", field:"Book Value / Share (Yahoo)", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
@@ -362,6 +427,8 @@ function bootUI(rows){
 
   wireSliders();
   rebuildCharts(rows);
+
+  wireColumnControls();
 
   // Click a row to see full score breakdown without cluttering the table.
   table.on("rowClick", function(e, row){

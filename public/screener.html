@@ -49,6 +49,9 @@
     }
     .tabulator .tabulator-row .tabulator-cell { padding-top: 4px; padding-bottom: 4px; }
     #table { overflow-x: auto; }
+.tabulator .tabulator-tableholder { overflow-x: auto; }
+.tabulator .tabulator-header { overflow: visible; }
+
 
 </style>
 </head>
@@ -153,8 +156,9 @@
       </div>
 
       <div class="card">
-        <strong>Undervalued methods count distribution</strong>
+        <strong>Sector median screener score</strong>
         <canvas id="hist"></canvas>
+        <small>Shows which sectors are scoring best on the composite score (median across stocks with data).</small>
       </div>
     </div>
 

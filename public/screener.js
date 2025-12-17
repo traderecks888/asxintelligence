@@ -365,7 +365,9 @@ function bootUI(rows){
   table = new Tabulator("#table", {
     data: rows,
     height: "650px",
-    layout: "fitColumns",
+    layout: "fitDataFill",
+    responsiveLayout: "hide",
+    columnDefaults: {minWidth: 120, headerWordWrap: true},
     pagination: true,
     paginationSize: 50,
     movableColumns: true,
@@ -390,11 +392,11 @@ function bootUI(rows){
       {column:"FCF Yield", dir:"desc"},
     ],
     columns: [
-      {title:"Ticker", field:"Ticker", width:90, headerFilter:true},
-      {title:"Company", field:"Company", minWidth:220, headerFilter:true},
+      {title:"Ticker", field:"Ticker", frozen:true, width:90, headerFilter:true},
+      {title:"Company", field:"Company", frozen:true, minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Score", field:"Screener Score", frozen:true, headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
@@ -576,13 +578,58 @@ function rebuildCharts(rows){
   const max = counts.length ? Math.max(...counts) : 0;
   const bins = Array.from({length: max+1}, (_,i)=>i);
   const freq = bins.map(b => counts.filter(x=>x===b).length);
+  // Sector median screener score (top sectors)
+  const bySector = new Map();
+  rows.forEach(r=>{
+    const s = r["Sector"] || "Unknown";
+    const sc = num(r["Screener Score"]);
+    if(!Number.isFinite(sc)) return;
+    if(!bySector.has(s)) bySector.set(s, []);
+    bySector.get(s).push(sc);
+  });
+
+  const sectorStats = Array.from(bySector.entries()).map(([s, arr])=>{
+    return {sector:s, med: median(arr), n: arr.length};
+  }).sort((a,b)=>b.med-a.med);
+
+  const top = sectorStats.slice(0, 18);
+  const labels = top.map(x=>x.sector);
+  const data = top.map(x=>x.med);
 
   const histCtx = document.getElementById("hist");
   if(histChart) histChart.destroy();
   histChart = new Chart(histCtx, {
     type:"bar",
-    data:{ labels: bins.map(String), datasets:[{label:"Count", data: freq}]},
-    options:{ plugins:{legend:{display:false}}, scales:{x:{title:{display:true,text:"Undervalued methods count"}}, y:{title:{display:true,text:"Number of stocks"}}}}
+    data:{ labels, datasets:[{label:"Median Screener Score", data}]},
+    options:{
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            label:(ctx)=>{
+              const i = ctx.dataIndex;
+              const st = top[i];
+              return `${st.sector}: median ${st.med.toFixed(1)} (n=${st.n})`;
+            }
+          }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{
+            autoSkip:false,
+            maxRotation:45,
+            minRotation:45,
+            callback:(v, i)=> {
+              const s = labels[i] || "";
+              return s.length > 14 ? (s.slice(0,14)+"…") : s;
+            }
+          },
+          title:{display:true,text:"Sector (top by median score)"}
+        },
+        y:{ title:{display:true,text:"Median Screener Score"}, suggestedMin:0, suggestedMax:100 }
+      }
+    }
   });
 }
 

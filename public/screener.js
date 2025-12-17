@@ -300,52 +300,6 @@ function wireColumnControls(){
 }
 
 
-function wireHorizontalSlider(){
-  const range = document.getElementById("hscrollRange");
-  const holder = document.querySelector("#table .tabulator-tableholder");
-  if(!range || !holder) return;
-
-  let lock = false;
-
-  const updateMax = ()=>{
-    const max = Math.max(0, holder.scrollWidth - holder.clientWidth);
-    range.max = String(max);
-    // keep value in range
-    const v = Math.min(max, Math.max(0, holder.scrollLeft));
-    range.value = String(v);
-  };
-
-  const onRange = ()=>{
-    if(lock) return;
-    lock = true;
-    holder.scrollLeft = Number(range.value) || 0;
-    lock = false;
-  };
-
-  const onScroll = ()=>{
-    if(lock) return;
-    lock = true;
-    range.value = String(holder.scrollLeft);
-    lock = false;
-  };
-
-  range.addEventListener("input", onRange);
-  holder.addEventListener("scroll", onScroll);
-  window.addEventListener("resize", ()=>setTimeout(updateMax, 50));
-
-  // If Tabulator events exist, re-measure on render
-  try{
-    if(table && table.on){
-      table.on("renderComplete", ()=>setTimeout(updateMax, 0));
-      table.on("columnVisibilityChanged", ()=>setTimeout(updateMax, 0));
-      table.on("columnResized", ()=>setTimeout(updateMax, 0));
-      table.on("dataLoaded", ()=>setTimeout(updateMax, 0));
-    }
-  }catch(e){}
-
-  // initial
-  setTimeout(updateMax, 0);
-}
 
 function wireSliders(){
   const ids = ["xMin","xMax","yMin","yMax"];
@@ -421,7 +375,14 @@ function bootUI(rows){
     movableColumns: true,
     rowTooltip: function(e, row){
   const d = row.getData();
-  const s = num(d["Screener Score"]);
+  
+  // Keep header/body column widths aligned after data loads and column visibility changes
+  try{
+    table.on("dataLoaded", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    table.on("columnVisibilityChanged", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    window.addEventListener("resize", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 50));
+  }catch(e){}
+const s = num(d["Screener Score"]);
   const v = num(d["Value Score"]);
   const q = num(d["Quality Score"]);
   const r = num(d["Risk Score"]);
@@ -485,7 +446,7 @@ function bootUI(rows){
   rebuildCharts(rows);
 
   wireColumnControls();
-  wireHorizontalSlider();
+  
 
   // Click a row to see full score breakdown without cluttering the table.
   table.on("rowClick", function(e, row){

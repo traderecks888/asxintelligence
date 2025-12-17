@@ -179,10 +179,10 @@ function bootUI(rows){
       {title:"Company", field:"Company", minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", formatter:(c)=>fmt2(num(c.getValue()))},
-      {title:"Value", field:"Value Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Quality", field:"Quality Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Risk", field:"Risk Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Score", field:"Screener Score", headerTooltip:'Screener Score (0–100). Computed from percentile ranks across the current ASX universe: Score = 0.45·Value + 0.30·Quality + 0.25·Risk + LiquidityBonus (0–10). Value: 40% DCF discount rank + 30% FCF yield rank + 20% MOS upside rank + 10% (low P/B) rank. Quality: 55% ROE rank + 30% profit margin rank + 15% (low net debt/EBITDA) rank. Risk: 45% (low vol20) rank + 25% (low ATR%) rank + 30% drawdown rank (less negative is better). Scores are relative and will shift each refresh.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile-based composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile-based composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile-based composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
       {title:"Price", field:"Price", formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Mkt Cap", field:"Market Cap", formatter:(c)=>fmtInt(num(c.getValue()))},

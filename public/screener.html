@@ -133,6 +133,91 @@
   #table .tabulator-tableholder{ margin-left:0 !important; }
   #table .tabulator-table{ margin-left:0 !important; }
 
+
+  /* ==== Guardrails for wide tables (prevents future column regressions) ==== */
+  /* Ensure the table scrolls inside itself instead of squeezing headers */
+  #table { width: 100%; }
+  #table .tabulator { width: max-content !important; min-width: 100% !important; }
+  #table .tabulator-tableholder { overflow: auto !important; }
+
+  /* Never show Tabulator row-header / responsive-collapse gutter (grey band) */
+  #table .tabulator-row-headers,
+  #table .tabulator-row-header,
+  #table .tabulator-row-header-col,
+  #table .tabulator-responsive-collapse,
+  #table .tabulator-cell.tabulator-responsive-collapse{
+    display:none !important;
+    width:0 !important;
+    min-width:0 !important;
+    max-width:0 !important;
+    padding:0 !important;
+    margin:0 !important;
+    border:0 !important;
+  }
+  #table .tabulator-tableholder{ margin-left:0 !important; }
+  #table .tabulator-table{ margin-left:0 !important; }
+
+  /* ==== Right-side detail drawer (replaces pushing content down) ==== */
+  #mainGrid{ display:flex; gap:14px; align-items:flex-start; }
+  #tableArea{ flex:1 1 auto; min-width:0; }
+  .drawer{
+    flex: 0 0 380px;
+    max-width: 420px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.03);
+    position: sticky;
+    top: 14px;
+    height: calc(100vh - 28px);
+    overflow: hidden;
+    display: none;
+  }
+  .drawer.is-open{ display:block; }
+  .drawerHeader{
+    display:grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    align-items:center;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .drawerTitle{ font-weight:700; font-size:14px; }
+  .drawerHint{
+    justify-self:end;
+    opacity:0.75;
+    font-size:12px;
+    white-space: nowrap;
+    overflow:hidden;
+    text-overflow: ellipsis;
+    max-width: 210px;
+  }
+  .drawerClose{
+    border:0;
+    background: rgba(255,255,255,0.06);
+    width:30px; height:30px;
+    border-radius:10px;
+    cursor:pointer;
+    font-size:18px;
+    line-height:30px;
+    color: inherit;
+  }
+  .drawerBody{
+    padding:12px;
+    height: calc(100% - 52px);
+    overflow:auto;
+  }
+
+  @media (max-width: 1100px){
+    #mainGrid{ flex-direction:column; }
+    .drawer{ position:relative; top:0; width:100%; max-width:none; height:auto; }
+    .drawerBody{ height:auto; max-height:55vh; }
+    .drawerHint{ justify-self:start; max-width: none; }
+    .drawerHeader{ grid-template-columns: 1fr auto; grid-template-rows: auto auto; }
+    .drawerTitle{ grid-column: 1 / 2; }
+    .drawerHint{ grid-column: 1 / 3; grid-row: 2; }
+    .drawerClose{ grid-column: 2; grid-row: 1; justify-self:end; }
+  }
+
 </style>
 </head>
 
@@ -242,23 +327,33 @@
       </div>
     </div>
 
-    <details id="scoreDetails" class="card" style="margin-top:12px;">
-  <summary><strong>Selected stock score breakdown</strong> <small id="scoreDetailsHint">Click a row in the table</small></summary>
-  <div id="scoreDetailsBody" style="margin-top:10px;">
-    <small>
+    
+    <div id="mainGrid">
+      <div id="tableArea">
+        <div id="table"></div>
+        <small style="display:block;margin-top:6px;">Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
+      </div>
+
+      <aside id="detailDrawer" class="drawer" aria-label="Selected stock details">
+        <div class="drawerHeader">
+          <div class="drawerTitle">Selected stock</div>
+          <div class="drawerHint" id="scoreDetailsHint">Click a row in the table</div>
+          <button id="drawerClose" class="drawerClose" title="Close">×</button>
+        </div>
+        <div id="scoreDetailsBody" class="drawerBody">
+          <small>
       This panel explains the 0–100 Screener Score for the selected stock: Value (45%), Quality (30%), Risk (25%), plus a small Liquidity bonus (0–10).
       Click any row to populate it.
     </small>
-  </div>
-</details>
+        </div>
+      </aside>
+    </div>
 
-    <div id="table"></div>
 </div>
-    <small>Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
   </div>
 
   <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/screener.js?v=0.50"></script>
+  <script src="/screener.js?v=0.71"></script>
 </body>
 </html>

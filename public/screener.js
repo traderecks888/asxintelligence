@@ -32,11 +32,38 @@ function pickBestWorst(parts){
   const worst = finite.reduce((a,b)=> (b.score<a.score)?b:a);
   return {best, worst};
 }
+function openDrawer(){
+  const drawer = document.getElementById("detailDrawer");
+  if(drawer) drawer.classList.add("is-open");
+}
+function closeDrawer(){
+  const drawer = document.getElementById("detailDrawer");
+  if(drawer) drawer.classList.remove("is-open");
+}
+function wireDrawerClose(){
+  const btn = document.getElementById("drawerClose");
+  if(!btn) return;
+  btn.addEventListener("click", ()=>{
+    // mimic toggle-off on the active row
+    if(window.__asxActiveRowEl){
+      window.__asxActiveRowEl.classList.remove("asx-row-active");
+    }
+    window.__asxActiveKey = null;
+    window.__asxActiveRowEl = null;
+    const body = document.getElementById("scoreDetailsBody");
+    const hint = document.getElementById("scoreDetailsHint");
+    if(body) body.innerHTML = "";
+    if(hint) hint.textContent = "Click a row in the table";
+    closeDrawer();
+  });
+}
+
+
 
 function renderScoreDetails(d){
   const el = document.getElementById("scoreDetailsBody");
   const hint = document.getElementById("scoreDetailsHint");
-  const det = document.getElementById("scoreDetails");
+  const drawer = document.getElementById("detailDrawer");
   if(!el) return;
 
   const score = num(d["Screener Score"]);
@@ -137,7 +164,7 @@ function renderScoreDetails(d){
   `;
 
   if(hint) hint.textContent = "";
-  if(det) det.open = true;
+  openDrawer();
 }
 
 
@@ -414,10 +441,10 @@ function bootUI(rows){
         // active row not present anymore -> collapse panel
         window.__asxActiveKey = null;
         window.__asxActiveRowEl = null;
-        const det = document.getElementById("scoreDetails");
+        const drawer = document.getElementById("detailDrawer");
         const body = document.getElementById("scoreDetailsBody");
         const hint = document.getElementById("scoreDetailsHint");
-        if(det) det.open = false;
+        closeDrawer();
         if(body) body.innerHTML = "";
         if(hint) hint.textContent = "Click a row in the table to populate it.";
       }
@@ -500,6 +527,7 @@ const s = num(d["Screener Score"]);
 
 
   wireSliders();
+  wireDrawerClose();
   rebuildCharts(rows);
 
   wireColumnControls();
@@ -513,7 +541,7 @@ const s = num(d["Screener Score"]);
     const d = row.getData() || {};
     const key = String(d["Ticker"] || row.getIndex() || "");
 
-    const det = document.getElementById("scoreDetails");
+    const drawer = document.getElementById("detailDrawer");
     const body = document.getElementById("scoreDetailsBody");
     const hint = document.getElementById("scoreDetailsHint");
 
@@ -528,7 +556,7 @@ const s = num(d["Screener Score"]);
       }
       window.__asxActiveKey = null;
       window.__asxActiveRowEl = null;
-      if(det) det.open = false;
+      closeDrawer();
       if(body) body.innerHTML = "";
       if(hint) hint.textContent = "Click a row in the table to populate it.";
       return;
@@ -543,7 +571,7 @@ const s = num(d["Screener Score"]);
     window.__asxActiveKey = key || null;
     window.__asxActiveRowEl = el || null;
 
-    if(det) det.open = true;
+    openDrawer();
     if(hint) hint.textContent = key ? `Selected: ${key}` : "Selected stock";
     try{ renderScoreDetails(d); }catch(err){ console.error(err); }
 

@@ -267,12 +267,15 @@ function wireColumnControls(){
   const allHold = document.getElementById("colShowAllHold");
   if(!table) return;
 
-  // Column groups  const keyIncome = [
+  // Column groups
+  const keyIncome = [
     "Dividend Yield (Latest, Calc)",
     "Dividend Yield Δ% (Yahoo→Calc)",
     "Held % Insiders",
     "Held % Institutions",
-  ];  const allDividend = [
+  ];
+
+  const allDividend = [
     "Dividend Rate (Yahoo)",
     "Dividend Yield (Yahoo)",
     "Dividend Yield (Latest, Calc)",

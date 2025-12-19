@@ -387,9 +387,49 @@ function bootUI(rows){
     pagination: true,
     paginationSize: 50,
     movableColumns: true,
-    selectable: 1,
+
     rowTooltip: function(e, row){
   const d = row.getData();
+
+  function rehighlightActiveRow(){
+    try{
+      const key = window.__asxActiveKey;
+      if(!key) return;
+      const rows = table.getRows();
+      let found = false;
+      rows.forEach(r=>{
+        const d = r.getData() || {};
+        const k = String(d["Ticker"] || r.getIndex() || "");
+        const el = r.getElement();
+        if(!el) return;
+        if(k === key){
+          el.classList.add("asx-row-active");
+          window.__asxActiveRowEl = el;
+          found = true;
+        }else{
+          el.classList.remove("asx-row-active");
+        }
+      });
+      if(!found){
+        // active row not present anymore -> collapse panel
+        window.__asxActiveKey = null;
+        window.__asxActiveRowEl = null;
+        const det = document.getElementById("scoreDetails");
+        const body = document.getElementById("scoreDetailsBody");
+        const hint = document.getElementById("scoreDetailsHint");
+        if(det) det.open = false;
+        if(body) body.innerHTML = "";
+        if(hint) hint.textContent = "Click a row in the table to populate it.";
+      }
+    }catch(e){}
+  }
+
+  try{
+    table.on("dataFiltered", ()=>setTimeout(rehighlightActiveRow, 0));
+    table.on("dataSorted", ()=>setTimeout(rehighlightActiveRow, 0));
+    table.on("pageLoaded", ()=>setTimeout(rehighlightActiveRow, 0));
+    table.on("renderComplete", ()=>setTimeout(rehighlightActiveRow, 0));
+  }catch(e){}
 const s = num(d["Screener Score"]);
   const v = num(d["Value Score"]);
   const q = num(d["Quality Score"]);
@@ -472,28 +512,41 @@ const s = num(d["Screener Score"]);
   table.on("rowClick", function(e, row){
     const d = row.getData() || {};
     const key = String(d["Ticker"] || row.getIndex() || "");
+
     const det = document.getElementById("scoreDetails");
     const body = document.getElementById("scoreDetailsBody");
     const hint = document.getElementById("scoreDetailsHint");
 
-    // If user clicks the same selected row again: toggle OFF (unhighlight + collapse)
-    if(lastClickedKey && key && lastClickedKey === key){
-      try{ row.deselect(); }catch(_e){}
-      lastClickedKey = null;
+    // Toggle logic:
+    // - click a row: select + expand panel
+    // - click the same row again: unselect + collapse panel
+    // - click a different row: move selection + update panel
+    if(window.__asxActiveKey && key && window.__asxActiveKey === key){
+      // toggle OFF
+      if(window.__asxActiveRowEl){
+        window.__asxActiveRowEl.classList.remove("asx-row-active");
+      }
+      window.__asxActiveKey = null;
+      window.__asxActiveRowEl = null;
       if(det) det.open = false;
       if(body) body.innerHTML = "";
       if(hint) hint.textContent = "Click a row in the table to populate it.";
       return;
     }
 
-    // Otherwise: select this row, deselect others, show breakdown for this row
-    try{ table.deselectRow(); }catch(_e){}
-    try{ row.select(); }catch(_e){}
-
-    lastClickedKey = key || null;
+    // Switching to a new row
+    if(window.__asxActiveRowEl){
+      window.__asxActiveRowEl.classList.remove("asx-row-active");
+    }
+    const el = row.getElement();
+    if(el) el.classList.add("asx-row-active");
+    window.__asxActiveKey = key || null;
+    window.__asxActiveRowEl = el || null;
 
     if(det) det.open = true;
+    if(hint) hint.textContent = key ? `Selected: ${key}` : "Selected stock";
     try{ renderScoreDetails(d); }catch(err){ console.error(err); }
+
   });
 
 

@@ -49,29 +49,24 @@
     }
     .tabulator .tabulator-row .tabulator-cell { padding-top: 4px; padding-bottom: 4px; }
     #table { width: 100%; }
-.tabulator .tabulator-tableholder { overflow-x: auto; }
 .tabulator .tabulator-header { overflow: visible; }
 
 
 
     #table { width: 100%; }
   #table .tabulator { width: max-content; min-width: 100%; } /* allow overflow if many columns */
-  #table .tabulator-tableholder { overflow-x: auto !important; scrollbar-gutter: stable both-edges; }
 /* allow it to exceed container width */
   #table{ width: 100%; }
   #table .tabulator{ width: 100%; }
-  #table .tabulator-tableholder{ overflow: auto !important; }
     #table { width: 100%; }
     #table .tabulator { width: 100% !important; }
     #table .tabulator, #table .tabulator * { box-sizing: border-box; }
-    #table .tabulator-tableholder { overflow: auto !important; }
     #table .tabulator-header { overflow: hidden; }
 
 
   /* Tabulator: normal scroll inside the table (no external scroll hacks) */
   #table { width: 100%; }
   #table .tabulator { width: 100%; }
-  #table .tabulator-tableholder { overflow: auto; }
 
   /* Remove left "row header" gutter (grey band) if it appears */
   .tabulator .tabulator-row-header,
@@ -111,6 +106,32 @@
 
 
   .tabulator .tabulator-table{ margin-left: 0 !important; }
+
+
+  /* Canonical scrolling: Tabulator manages scroll inside the table */
+  #table .tabulator-tableholder{ overflow: auto !important; }
+
+  /* Persistent selected row highlight (without Tabulator selection module) */
+  .tabulator .tabulator-row.asx-row-active{
+    background: rgba(120, 160, 255, 0.18) !important;
+  }
+
+  /* Aggressive removal of left gutter/row header column */
+  #table .tabulator-row-headers,
+  #table .tabulator-row-header,
+  #table .tabulator-row-header-col,
+  #table .tabulator-responsive-collapse,
+  #table .tabulator-cell.tabulator-responsive-collapse{
+    display:none !important;
+    width:0 !important;
+    min-width:0 !important;
+    max-width:0 !important;
+    padding:0 !important;
+    margin:0 !important;
+    border:0 !important;
+  }
+  #table .tabulator-tableholder{ margin-left:0 !important; }
+  #table .tabulator-table{ margin-left:0 !important; }
 
 </style>
 </head>

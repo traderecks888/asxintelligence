@@ -498,13 +498,6 @@ const s = num(d["Screener Score"]);
 
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
-
-      {title:"Div/Share", field: formatter:(c)=>fmt4(num(c.getValue())), visible:false},
-      {title:"Div Yld Ann", field: formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Now", field: headerTooltip:'Implied yield now = (last dividend per share) ÷ (current price).', formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Δ%", field: headerTooltip:'Relative change vs announcement: (YieldNow − YieldAtAnnouncement) ÷ YieldAtAnnouncement.', formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Frank%", field:"Dividend Franking % (Latest) [REMOVED]", formatter:(c)=>pct(num(c.getValue())), visible:false, headerTooltip:"Latest dividend franking % (Australia-specific). This is only available if the pipeline supplies it."},
-
       {title:"Held% Ins", field:"Held % Insiders", headerTooltip:'Estimated % of shares held by insiders (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:false},
       {title:"Held% Inst", field:"Held % Institutions", headerTooltip:'Estimated % of shares held by institutions (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:false},
 

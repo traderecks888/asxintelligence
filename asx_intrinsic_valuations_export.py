@@ -91,6 +91,18 @@ def safe_get(d: Dict[str, Any], key: str, default=np.nan):
     except Exception:
         return default
 
+def epoch_to_date_str(x: Any) -> str:
+    """Convert epoch seconds (Yahoo) to YYYY-MM-DD string."""
+    try:
+        if x is None:
+            return ""
+        fx = float(x)
+        if np.isnan(fx):
+            return ""
+        return datetime.fromtimestamp(int(fx), tz=ZoneInfo("UTC")).date().isoformat()
+    except Exception:
+        return ""
+
 
 def ensure_parent_dir(p: Path) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -799,6 +811,9 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         "marketCap": market_cap,
         # Dividend fields (prefer Yahoo info; fallback to dividends series where missing)
         "dividendRate": safe_get(info, "dividendRate", np.nan),
+        "payoutRatio": safe_get(info, "payoutRatio", np.nan),
+        "exDividendDate": safe_get(info, "exDividendDate", np.nan),
+        "fiveYearAvgDividendYield": safe_get(info, "fiveYearAvgDividendYield", np.nan),
         "dividendYield": safe_get(info, "dividendYield", np.nan),
         "lastDividendValue": safe_get(info, "lastDividendValue", np.nan),
         "lastDividendDate": safe_get(info, "lastDividendDate", np.nan),
@@ -863,60 +878,6 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         last_div = np.nan
 
     last_div_date = base.get("last_dividend_date", np.nan)
-    last_div_dt = None
-    try:
-        # Yahoo often returns epoch seconds
-        if not np.isnan(float(last_div_date)):
-            last_div_dt = datetime.fromtimestamp(int(float(last_div_date)), tz=ZoneInfo("UTC")).date()
-    except Exception:
-        last_div_dt = None
-
-    def _close_on_or_before_date(hist_df: pd.DataFrame, d: datetime.date) -> float:
-        try:
-            if hist_df is None or hist_df.empty:
-                return np.nan
-            idx = hist_df.index
-            # Normalize to dates
-            dates = pd.to_datetime(idx).date
-            # exact match
-            if d in set(dates):
-                # take last row for that date
-                row = hist_df[pd.to_datetime(idx).date == d].iloc[-1]
-                return float(row.get("Close", np.nan))
-            # nearest prior
-            prior_mask = [dd <= d for dd in dates]
-            if not any(prior_mask):
-                return np.nan
-            row = hist_df.iloc[[i for i,v in enumerate(prior_mask) if v][-1]]
-            return float(row.get("Close", np.nan))
-        except Exception:
-            return np.nan
-
-    div_yield_at_announce = np.nan
-    div_yield_current = np.nan
-    div_yield_diff_pct = np.nan
-
-    try:
-        if not np.isnan(last_div) and last_div > 0:
-            if last_div_dt is not None and 'hist' in locals() and hist is not None and not hist.empty:
-                announce_px = _close_on_or_before_date(hist, last_div_dt)
-                if not np.isnan(announce_px) and announce_px > 0:
-                    div_yield_at_announce = float(last_div / announce_px)
-            # current implied yield uses currentPrice
-            px_now = float(base.get("currentPrice", np.nan))
-            if not np.isnan(px_now) and px_now > 0:
-                div_yield_current = float(last_div / px_now)
-
-            if not np.isnan(div_yield_at_announce) and div_yield_at_announce > 0 and not np.isnan(div_yield_current):
-                div_yield_diff_pct = float((div_yield_current - div_yield_at_announce) / div_yield_at_announce)
-    except Exception:
-        pass
-
-    base["last_dividend_per_share"] = last_div
-    base["div_yield_announced"] = div_yield_at_announce
-    base["div_yield_current_implied"] = div_yield_current
-    base["div_yield_change_pct"] = div_yield_diff_pct
-    base["last_dividend_date"] = (str(last_div_dt) if last_div_dt is not None else "")
 
     # Output row (stable user-facing columns)
     out_row: Dict[str, Any] = {
@@ -998,14 +959,32 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         "Held % Insiders": base.get("held_pct_insiders", np.nan),
         "Held % Institutions": base.get("held_pct_institutions", np.nan),
         "Short % Float": base.get("short_pct_float", np.nan),
-
         "Dividend Rate (Yahoo)": base.get("dividend_rate", np.nan),
         "Dividend Yield (Yahoo)": base.get("dividend_yield", np.nan),
-        "Last Dividend / Share": base.get("last_dividend_per_share", np.nan),
-        "Last Dividend Date": base.get("last_dividend_date", ""),
-        "Dividend Yield (Announced)": base.get("div_yield_announced", np.nan),
-        "Dividend Yield (Current)": base.get("div_yield_current_implied", np.nan),
-        "Dividend Yield Δ%": base.get("div_yield_change_pct", np.nan),
+
+        # Raw Yahoo dividend metadata (as available)
+        "Payout Ratio (Yahoo)": base.get("payoutRatio", np.nan),
+        "5Y Avg Dividend Yield (Yahoo)": base.get("fiveYearAvgDividendYield", np.nan),
+        "Ex-Dividend Date (Yahoo)": epoch_to_date_str(base.get("exDividendDate", np.nan)),
+        "Last Dividend Value (Yahoo)": base.get("lastDividendValue", np.nan),
+        "Last Dividend Date (Yahoo)": epoch_to_date_str(base.get("lastDividendDate", np.nan)),
+
+        # Requested calc: trailing annual dividend rate / latest share price
+        "Dividend Yield (Latest, Calc)": (
+            float(base.get("dividend_rate", np.nan)) / float(base["currentPrice"])
+            if (not np.isnan(base.get("dividend_rate", np.nan)) and not np.isnan(base["currentPrice"]) and float(base["currentPrice"]) > 0)
+            else np.nan
+        ),
+
+        # Delta between Yahoo's dividendYield and the calculated yield above (relative % change)
+        "Dividend Yield Δ% (Yahoo→Calc)": (
+            ( (float(base.get("dividend_rate", np.nan)) / float(base["currentPrice"])) - float(base.get("dividend_yield", np.nan)) )
+            / float(base.get("dividend_yield", np.nan))
+            if (not np.isnan(base.get("dividend_rate", np.nan)) and not np.isnan(base["currentPrice"]) and float(base["currentPrice"]) > 0
+                and not np.isnan(base.get("dividend_yield", np.nan)) and float(base.get("dividend_yield", np.nan)) != 0)
+            else np.nan
+        ),
+
 
         "Reverse DCF Implied Growth": base.get("reverse_dcf_implied_growth", np.nan),
         "PEG Ratio": base.get("peg_ratio", np.nan),
@@ -1246,11 +1225,13 @@ def main() -> None:
         "Profit Margin",
         "Dividend Rate (Yahoo)",
         "Dividend Yield (Yahoo)",
-        "Last Dividend / Share",
-        "Last Dividend Date",
-        "Dividend Yield (Announced)",
-        "Dividend Yield (Current)",
-        "Dividend Yield Δ%",
+        "Payout Ratio (Yahoo)",
+        "5Y Avg Dividend Yield (Yahoo)",
+        "Ex-Dividend Date (Yahoo)",
+        "Last Dividend Value (Yahoo)",
+        "Last Dividend Date (Yahoo)",
+        "Dividend Yield (Latest, Calc)",
+        "Dividend Yield Δ% (Yahoo→Calc)",
         "Held % Insiders",
         "Held % Institutions"
     ]

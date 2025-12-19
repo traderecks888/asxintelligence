@@ -266,23 +266,21 @@ function wireColumnControls(){
   const allHold = document.getElementById("colShowAllHold");
   if(!table) return;
 
-  // Column groups
-  const keyIncome = [
-    "Dividend Yield (Current)",
-    "Dividend Yield Δ%",
+  // Column groups  const keyIncome = [
+    "Dividend Yield (Latest, Calc)",
+    "Dividend Yield Δ% (Yahoo→Calc)",
     "Held % Insiders",
     "Held % Institutions",
-    "Dividend Franking % (Latest)",
-  ];
-  const allDividend = [
+  ];  const allDividend = [
     "Dividend Rate (Yahoo)",
     "Dividend Yield (Yahoo)",
-    "Last Dividend / Share",
-    "Last Dividend Date",
-    "Dividend Yield (Announced)",
-    "Dividend Yield (Current)",
-    "Dividend Yield Δ%",
-    "Dividend Franking % (Latest)",
+    "Dividend Yield (Latest, Calc)",
+    "Dividend Yield Δ% (Yahoo→Calc)",
+    "Payout Ratio (Yahoo)",
+    "5Y Avg Dividend Yield (Yahoo)",
+    "Ex-Dividend Date (Yahoo)",
+    "Last Dividend Value (Yahoo)",
+    "Last Dividend Date (Yahoo)",
   ];
   const allHoldings = [
     "Held % Insiders",
@@ -495,14 +493,25 @@ const s = num(d["Screener Score"]);
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
 
-      {title:"Div/Share", field:"Last Dividend / Share", formatter:(c)=>fmt4(num(c.getValue())), visible:false},
-      {title:"Div Yld Ann", field:"Dividend Yield (Announced)", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Now", field:"Dividend Yield (Current)", headerTooltip:'Implied yield now = (last dividend per share) ÷ (current price).', formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Div Yld Δ%", field:"Dividend Yield Δ%", headerTooltip:'Relative change vs announcement: (YieldNow − YieldAtAnnouncement) ÷ YieldAtAnnouncement.', formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Frank%", field:"Dividend Franking % (Latest)", formatter:(c)=>pct(num(c.getValue())), visible:false, headerTooltip:"Latest dividend franking % (Australia-specific). This is only available if the pipeline supplies it."},
+      {title:"Div/Share", field: formatter:(c)=>fmt4(num(c.getValue())), visible:false},
+      {title:"Div Yld Ann", field: formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld Now", field: headerTooltip:'Implied yield now = (last dividend per share) ÷ (current price).', formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld Δ%", field: headerTooltip:'Relative change vs announcement: (YieldNow − YieldAtAnnouncement) ÷ YieldAtAnnouncement.', formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Frank%", field:"Dividend Franking % (Latest) [REMOVED]", formatter:(c)=>pct(num(c.getValue())), visible:false, headerTooltip:"Latest dividend franking % (Australia-specific). This is only available if the pipeline supplies it."},
 
       {title:"Held% Ins", field:"Held % Insiders", headerTooltip:'Estimated % of shares held by insiders (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:false},
       {title:"Held% Inst", field:"Held % Institutions", headerTooltip:'Estimated % of shares held by institutions (data-source reported).', formatter:(c)=>pct(num(c.getValue())), visible:false},
+
+      // Dividend fields (revamped): Yahoo raw + calculated latest yield
+      {title:"Div Rate", field:"Dividend Rate (Yahoo)", headerTooltip:"Trailing annual dividend rate (cash per share) from Yahoo where available.", formatter:(c)=>fmt4(num(c.getValue())), visible:false},
+      {title:"Div Yld (Y!)", field:"Dividend Yield (Yahoo)", headerTooltip:"Dividend yield from Yahoo (may lag price).", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld (Calc)", field:"Dividend Yield (Latest, Calc)", headerTooltip:"Calculated: trailing annual dividend rate ÷ latest share price.", formatter:(c)=>pct(num(c.getValue())), visible:true},
+      {title:"Div Δ% (Y!→Calc)", field:"Dividend Yield Δ% (Yahoo→Calc)", headerTooltip:"Relative % difference between Yahoo's dividendYield and the calculated yield (from dividendRate ÷ latest price).", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Payout", field:"Payout Ratio (Yahoo)", headerTooltip:"Payout ratio from Yahoo where available.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"5Y Avg Yld", field:"5Y Avg Dividend Yield (Yahoo)", headerTooltip:"Five-year average dividend yield from Yahoo.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Ex-Div", field:"Ex-Dividend Date (Yahoo)", headerTooltip:"Ex-dividend date from Yahoo.", visible:false},
+      {title:"Last Div", field:"Last Dividend Value (Yahoo)", headerTooltip:"Last dividend amount (cash per share) from Yahoo.", formatter:(c)=>fmt4(num(c.getValue())), visible:false},
+      {title:"Last Div Dt", field:"Last Dividend Date (Yahoo)", headerTooltip:"Last dividend date from Yahoo.", visible:false},
 
       {title:"BV/Share (Yahoo)", field:"Book Value / Share (Yahoo)", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 

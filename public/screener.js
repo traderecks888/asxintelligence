@@ -301,6 +301,20 @@ function wireColumnControls(){
 
 
 
+
+function safeRedraw(){
+  try{
+    const holder = document.querySelector("#table .tabulator-tableholder");
+    const sl = holder ? holder.scrollLeft : 0;
+    const st = holder ? holder.scrollTop : 0;
+    table.redraw(false);
+    if(holder){
+      holder.scrollLeft = sl;
+      holder.scrollTop = st;
+    }
+  }catch(e){}
+}
+
 function wireSliders(){
   const ids = ["xMin","xMax","yMin","yMax"];
   ids.forEach(id => {
@@ -367,7 +381,8 @@ function bootUI(rows){
   table = new Tabulator("#table", {
     data: rows,
     height: "650px",
-    layout: "fitDataFill",
+    layout: "fitData",
+    responsiveLayout: false,
     columnDefaults: {minWidth: 120, headerWordWrap: true},
     pagination: true,
     paginationSize: 50,
@@ -435,13 +450,12 @@ const s = num(d["Screener Score"]);
     ],
   });
 
-  // Alignment/scroll reliability: force a redraw after render/data/resize
+  // Keep header/body aligned without resetting scroll position
   try{
-    table.on("renderComplete", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    table.on("dataLoaded", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    table.on("columnResized", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    table.on("columnVisibilityChanged", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    window.addEventListener("resize", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 50));
+    table.on("dataLoaded", ()=>setTimeout(safeRedraw, 0));
+    table.on("columnVisibilityChanged", ()=>setTimeout(safeRedraw, 0));
+    table.on("columnResized", ()=>setTimeout(safeRedraw, 0));
+    window.addEventListener("resize", ()=>setTimeout(safeRedraw, 50));
   }catch(e){}
 
 
@@ -462,27 +476,26 @@ const s = num(d["Screener Score"]);
     const body = document.getElementById("scoreDetailsBody");
     const hint = document.getElementById("scoreDetailsHint");
 
-    // Toggle off if clicking the same selected row again
+    // If user clicks the same selected row again: toggle OFF (unhighlight + collapse)
     if(lastClickedKey && key && lastClickedKey === key){
       try{ row.deselect(); }catch(_e){}
+      lastClickedKey = null;
       if(det) det.open = false;
       if(body) body.innerHTML = "";
       if(hint) hint.textContent = "Click a row in the table to populate it.";
-      lastClickedKey = null;
       return;
     }
 
-    // Select new row (keep highlight)
+    // Otherwise: select this row, deselect others, show breakdown for this row
     try{ table.deselectRow(); }catch(_e){}
     try{ row.select(); }catch(_e){}
 
     lastClickedKey = key || null;
 
-    // Ensure the details section is visible/open when a row is selected
     if(det) det.open = true;
-
     try{ renderScoreDetails(d); }catch(err){ console.error(err); }
   });
+
 
 
 document.getElementById("preset").addEventListener("change", () => {

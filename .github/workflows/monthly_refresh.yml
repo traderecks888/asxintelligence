@@ -100,3 +100,8 @@ jobs:
               title,
               body
             });
+
+      - name: Validate screener JS (syntax)
+        run: |
+          node --version
+          node --check public/screener.js

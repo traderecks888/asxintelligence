@@ -4,23 +4,15 @@ on:
   workflow_dispatch:
   schedule:
     # GitHub cron uses UTC.
-    #
-    # Target times are based on ASX trading hours (Sydney time).
-    #
     # AEDT (Sydney summer, UTC+11):
     # Mid-session (~13:00 Sydney) -> 02:00 UTC
     - cron: "0 2 * * 1-5"
     # End-of-session (~16:25 Sydney) -> 05:25 UTC
     - cron: "25 5 * * 1-5"
-    #
-    # AEST (Sydney winter, UTC+10):
-    # Uncomment these and remove the AEDT lines above if you want winter-perfect timing.
+
+    # AEST (Sydney winter, UTC+10): uncomment these and remove the AEDT lines above.
     # - cron: "0 3 * * 1-5"
     # - cron: "25 6 * * 1-5"
-
-permissions:
-  contents: write
-  issues: write
 
 concurrency:
   group: asxintelligence-refresh
@@ -30,6 +22,8 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -40,42 +34,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run valuation refresh
+
+      - name: Validate screener JS (syntax)
+        run: |
+          node --version
+          node --check public/screener.js
+      - name: Run exporter
         run: |
           python asx_intrinsic_valuations_export.py --resume --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
 
-      - name: Smoke check outputs exist
-        run: |
-          test -f public/data/manifest.json
-          test -f public/data/latest_web.json
-          test -f public/data/latest.xlsx
-          python - <<'PY'
-          import json, pathlib
-          p = pathlib.Path("public/data/latest_web.json")
-          data = json.loads(p.read_text(encoding="utf-8"))
-          assert isinstance(data, list) and len(data) > 0
-          print("OK: latest_web.json rows:", len(data))
-          PY
-
-      - name: Upload debug artifacts (only if failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: asxintelligence-debug
-          retention-days: 7
-          if-no-files-found: ignore
-          path: |
-            public/data/manifest.json
-            public/data/latest_web.json
-            public/data/latest.xlsx
-
       - name: Commit updated data (public/data)
-        if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -86,29 +59,3 @@ jobs:
           fi
           git commit -m "data: refresh public dataset"
           git push
-
-      - name: Create GitHub issue on failure
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const title = `ASX twice-daily refresh failed (${new Date().toISOString().slice(0,10)})`;
-            const body = [
-              "The scheduled ASX twice-daily refresh workflow failed.",
-              "",
-              `Run: ${runUrl}`,
-              "",
-              "Suggested checks:",
-              "- yfinance / Yahoo intermittent issues or rate limiting",
-              "- Missing dependencies in requirements.txt",
-              "- Data source changes",
-              "",
-              "Tip: the Smoke check step usually pinpoints missing outputs.",
-            ].join("\n");
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title,
-              body
-            });

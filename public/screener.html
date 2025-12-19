@@ -354,6 +354,41 @@
 
   <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/screener.js?v=0.71"></script>
+  <script>
+  (function(){
+    function el(id){ return document.getElementById(id); }
+    function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+    function show(html){
+      const meta = el("meta");
+      if(meta) meta.textContent = "Error loading dataset";
+      const err = el("err");
+      if(err){
+        err.style.display = "block";
+        err.innerHTML = html;
+      }
+    }
+    window.__ASX_UI_READY = false;
+    window.__asxFatal = function(msg, err){
+      show(`<strong>${esc(msg)}</strong><br><small>${esc(err ? (err.stack || err.message || err) : "")}</small>`);
+    };
+    window.addEventListener("error", function(e){
+      window.__asxFatal("Screener JavaScript error", e.error || e.message || e);
+    });
+    window.addEventListener("unhandledrejection", function(e){
+      window.__asxFatal("Screener promise rejection", e.reason || e);
+    });
+    setTimeout(function(){
+      if(!window.__ASX_UI_READY){
+        show(
+          `<strong>Screener is still loading.</strong><br>` +
+          `This usually means the data file is missing/empty, or a JS error occurred.<br>` +
+          `Check <code>/data/latest_web.json</code> and <code>/data/manifest.json</code>, then hard-refresh.`
+        );
+      }
+    }, 7000);
+  })();
+  </script>
+
+  <script src="/screener.js?v=0.73" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
 </body>
 </html>

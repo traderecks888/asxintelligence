@@ -1,3 +1,4 @@
+window.__ASX_UI_READY = window.__ASX_UI_READY || false;
 function median(arr){
   const a = arr.filter(x => Number.isFinite(x)).sort((x,y)=>x-y);
   if(!a.length) return NaN;
@@ -362,7 +363,7 @@ function wireSliders(){
   sliderLabel("yMaxV", win.yMax);
 }
 
-async function load(){
+async async function load(){
   try{
     hideErr();
 
@@ -381,9 +382,11 @@ async function load(){
     filteredNow = rows;
 
     bootUI(raw);
+    window.__ASX_UI_READY = true;
     setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
   }catch(err){
     console.error(err);
+    try{ if(window.__asxFatal) window.__asxFatal("Could not load data", err); }catch(e){}
     setMeta("Error loading dataset");
     showErr(
       `<strong>Could not load data.</strong><br>` +

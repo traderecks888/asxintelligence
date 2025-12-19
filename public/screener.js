@@ -197,6 +197,8 @@ let filteredNow = [];
 let table = null;
 let scatterChart = null;
 let histChart = null;
+let vqChart = null;
+let divChart = null;
 
 function setMeta(msg){ const el = document.getElementById("meta"); if(el) el.textContent = msg; }
 function showErr(msg){
@@ -230,6 +232,17 @@ function num(v){
   if (v === null || v === undefined || v === "") return NaN;
   const n = Number(v);
   return Number.isFinite(n) ? n : NaN;
+}
+
+function setText(id, txt){
+  const el = document.getElementById(id);
+  if(el) el.textContent = txt;
+}
+function normFrac(v){
+  const n = Number(v);
+  if(!Number.isFinite(n)) return NaN;
+  if(Math.abs(n) > 1.5 && Math.abs(n) <= 200) return n/100;
+  return n;
 }
 
 function applyPreset(){
@@ -422,6 +435,77 @@ async function load(){
   }
 }
 
+
+function updateMacroTiles(rows){
+  try{
+    const n = rows.length || 0;
+    if(!n){
+      setText("macroRegime","–"); setText("macroBreadth","–"); setText("macroVol","–");
+      setText("macroValuePocket","–"); setText("macroIncome","–"); setText("macroSector","–");
+      setText("macroRegimeHint",""); setText("macroIncomeHint",""); setText("macroSectorHint","");
+      return;
+    }
+
+    const ret1m = rows.map(r=>num(r["Return 1m"])).filter(Number.isFinite);
+    const breadth = ret1m.length ? (ret1m.filter(x=>x>0).length / ret1m.length) : NaN;
+
+    const vol = rows.map(r=>num(r["Vol (20d, ann)"])).filter(Number.isFinite);
+    const volMed = vol.length ? median(vol) : NaN;
+
+    const vp = rows.filter(r => num(r["DCF Premium/(Discount)"]) > 0 && num(r["FCF Yield"]) > 0.05).length;
+    const vpPct = vp / n;
+
+    const dy = rows.map(r=>normFrac(r["Dividend Yield (Latest, Calc)"])).filter(x=>Number.isFinite(x) && x>0);
+    const dyMed = dy.length ? median(dy) : NaN;
+    const pay = rows.map(r=>normFrac(r["Payout Ratio (Yahoo)"])).filter(Number.isFinite);
+    const payMed = pay.length ? median(pay) : NaN;
+
+    // Leading sector by median score
+    const bySector = {};
+    rows.forEach(r=>{
+      const s = r["Sector"] || "—";
+      const sc = num(r["Screener Score"]);
+      if(!Number.isFinite(sc)) return;
+      (bySector[s] ||= []).push(sc);
+    });
+    let bestSector = "—", bestMed = NaN, bestN = 0;
+    Object.entries(bySector).forEach(([s, arr])=>{
+      if(arr.length < 6) return;
+      const m = median(arr);
+      if(!Number.isFinite(bestMed) || m > bestMed){
+        bestMed = m; bestSector = s; bestN = arr.length;
+      }
+    });
+
+    // Simple regime label heuristic
+    let regime = "Mixed";
+    if(Number.isFinite(breadth) && Number.isFinite(volMed)){
+      if(breadth >= 0.55 && volMed <= 0.35) regime = "Risk-on";
+      else if(breadth <= 0.45 && volMed >= 0.35) regime = "Risk-off";
+    }
+
+    setText("macroRegime", regime);
+    setText("macroRegimeHint", `Breadth ${Number.isFinite(breadth)?Math.round(breadth*100):"–"}% • Vol ${Number.isFinite(volMed)?pctSmart(volMed):"–"}`);
+    setText("macroBreadth", Number.isFinite(breadth) ? (Math.round(breadth*100)+"%") : "–");
+    setText("macroVol", Number.isFinite(volMed) ? pctSmart(volMed) : "–");
+    setText("macroValuePocket", Math.round(vpPct*100)+"%");
+
+    if(Number.isFinite(dyMed)){
+      const payersPct = Math.round((dy.length / n) * 100);
+      setText("macroIncome", pctSmart(dyMed));
+      setText("macroIncomeHint", `Payers ${payersPct}% • Payout med ${Number.isFinite(payMed)?pctSmart(payMed):"–"}`);
+    }else{
+      setText("macroIncome","–");
+      setText("macroIncomeHint", "");
+    }
+
+    setText("macroSector", bestSector);
+    setText("macroSectorHint", Number.isFinite(bestMed) ? (`Median score ${fmt2(bestMed)} (n=${bestN})`) : "");
+  }catch(e){
+    console.warn("macro tiles error", e);
+  }
+}
+
 function bootUI(rows){
   const sectors = Array.from(new Set(rows.map(r => r["Sector"]).filter(Boolean))).sort();
   const sel = document.getElementById("sector");
@@ -431,6 +515,7 @@ function bootUI(rows){
   document.getElementById("kpiDCF").textContent = pct(median(rows.map(r => num(r["DCF Premium/(Discount)"]))));
   document.getElementById("kpiFCF").textContent = pct(median(rows.map(r => num(r["FCF Yield"]))));
   document.getElementById("kpiScore").textContent = fmt2(median(rows.map(r => num(r["Screener Score"]))));
+  updateMacroTiles(rows);
 
   table = new Tabulator("#table", {
     data: rows,
@@ -695,6 +780,7 @@ function applyFilters(){
   document.getElementById("kpiDCF").textContent = pct(median(out.map(r => num(r["DCF Premium/(Discount)"]))));
   document.getElementById("kpiFCF").textContent = pct(median(out.map(r => num(r["FCF Yield"]))));
   document.getElementById("kpiScore").textContent = fmt2(median(out.map(r => num(r["Screener Score"]))));
+  updateMacroTiles(out);
 }
 
 function rebuildCharts(rows){
@@ -798,6 +884,99 @@ function rebuildCharts(rows){
       }
     }
   });
+
+  // --- Value vs Quality quadrant map ---
+  try{
+    const vqAll = rows.map(r => ({
+      x: num(r["Value Score"]),
+      y: num(r["Quality Score"]),
+      m: num(r["Market Cap"]) || 0,
+      label: r["Ticker"],
+      score: num(r["Screener Score"]),
+      risk: num(r["Risk Score"]),
+    })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+    vqAll.sort((a,b)=>b.m-a.m);
+    const NVQ = Math.min(900, vqAll.length);
+    const vqPts = vqAll.slice(0, NVQ).map(p => ({
+      x: p.x, y: p.y,
+      r: Math.max(2, Math.min(16, p.m / 5e10 * 16)),
+      label: p.label,
+      score: p.score,
+      risk: p.risk
+    }));
+
+    const vqCtx = document.getElementById("vq");
+    if(vqCtx){
+      if(vqChart) vqChart.destroy();
+      vqChart = new Chart(vqCtx, {
+        type:"bubble",
+        data:{ datasets:[{ label:`Top ${NVQ} by mkt cap (in view)`, data: vqPts }]},
+        options:{
+          parsing:false,
+          interaction:{ mode:"nearest", intersect:false },
+          plugins:{ tooltip:{ callbacks:{ label:(ctx)=>{
+            const p = ctx.raw;
+            const s = Number.isFinite(p.score) ? fmt2(p.score) : "–";
+            const r = Number.isFinite(p.risk) ? fmt2(p.risk) : "–";
+            return `${p.label}: V ${fmt2(p.x)} • Q ${fmt2(p.y)} • Score ${s} • Risk ${r}`;
+          }}}},
+          scales:{
+            x:{ title:{display:true,text:"Value score"}, suggestedMin:0, suggestedMax:100 },
+            y:{ title:{display:true,text:"Quality score"}, suggestedMin:0, suggestedMax:100 }
+          }
+        }
+      });
+    }
+  }catch(e){ console.warn("VQ chart error", e); }
+
+  // --- Dividend sustainability map (Yield vs Payout) ---
+  try{
+    const divAll = rows.map(r => ({
+      x: normFrac(r["Dividend Yield (Latest, Calc)"]),
+      y: normFrac(r["Payout Ratio (Yahoo)"]),
+      m: num(r["Market Cap"]) || 0,
+      label: r["Ticker"],
+      score: num(r["Screener Score"])
+    }))
+    .filter(p => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y >= 0);
+
+    divAll.sort((a,b)=>b.m-a.m);
+    const ND = Math.min(900, divAll.length);
+    const divPts = divAll.slice(0, ND).map(p => ({
+      x: p.x, y: p.y,
+      r: Math.max(2, Math.min(16, p.m / 5e10 * 16)),
+      label: p.label,
+      score: p.score
+    }));
+
+    const divCtx = document.getElementById("divmap");
+    if(divCtx){
+      if(divChart) divChart.destroy();
+      divChart = new Chart(divCtx, {
+        type:"bubble",
+        data:{ datasets:[{ label:`Top ${ND} by mkt cap (dividend payers)`, data: divPts }]},
+        options:{
+          parsing:false,
+          interaction:{ mode:"nearest", intersect:false },
+          plugins:{ tooltip:{ callbacks:{ label:(ctx)=>{
+            const p = ctx.raw;
+            const s = Number.isFinite(p.score) ? fmt2(p.score) : "–";
+            return `${p.label}: Yield ${pctSmart(p.x)} • Payout ${pctSmart(p.y)} • Score ${s}`;
+          }}}},
+          scales:{
+            x:{ title:{display:true,text:"Dividend yield (latest, calc)"},
+                ticks:{ callback:(v)=> (Number(v)*100).toFixed(0)+"%" },
+                suggestedMin:0, suggestedMax:0.15 },
+            y:{ title:{display:true,text:"Payout ratio"},
+                ticks:{ callback:(v)=> (Number(v)*100).toFixed(0)+"%" },
+                suggestedMin:0, suggestedMax:2.0 }
+          }
+        }
+      });
+    }
+  }catch(e){ console.warn("Dividend chart error", e); }
+
 }
 
 load();

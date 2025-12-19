@@ -48,7 +48,7 @@
       white-space: normal; /* allow wrap */
     }
     .tabulator .tabulator-row .tabulator-cell { padding-top: 4px; padding-bottom: 4px; }
-    #table { overflow-x: auto; }
+    #table { width: 100%; }
 .tabulator .tabulator-tableholder { overflow-x: auto; }
 .tabulator .tabulator-header { overflow: visible; }
 
@@ -59,18 +59,14 @@
   #table .tabulator-tableholder { overflow-x: auto !important; scrollbar-gutter: stable both-edges; }
 
       
-  /* Table container horizontal scroll (single scrollbar inside the table container) */
-  #tableWrap{
-    width: 100%;
-    overflow-x: auto;
-    overflow-y: visible;
-    padding-bottom: 8px; /* keep scrollbar visible */
-    border-radius: 12px;
-  }
   /* Let the wrapper own horizontal scrolling; avoid double horizontal scrollbars */
-  #tableWrap .tabulator-tableholder{ overflow-x: hidden !important; }
-  #tableWrap .tabulator{ display: inline-block; } /* allow it to exceed container width */
+/* allow it to exceed container width */
 
+
+  /* Single-scroll Tabulator table: scroll inside the table (both directions) */
+  #table{ width: 100%; }
+  #table .tabulator{ width: 100%; }
+  #table .tabulator-tableholder{ overflow: auto !important; }
 </style>
 </head>
 
@@ -190,9 +186,7 @@
   </div>
 </details>
 
-    <div id="tableWrap">
     <div id="table"></div>
-  </div>
 </div>
     <small>Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
   </div>

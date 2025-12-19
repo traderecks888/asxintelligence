@@ -379,7 +379,9 @@ function bootUI(rows){
   // Keep header/body column widths aligned after data loads and column visibility changes
   try{
     table.on("dataLoaded", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    table.on("renderComplete", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
     table.on("columnVisibilityChanged", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    table.on("columnResized", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
     window.addEventListener("resize", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 50));
   }catch(e){}
 const s = num(d["Screener Score"]);
@@ -401,11 +403,11 @@ const s = num(d["Screener Score"]);
       {column:"FCF Yield", dir:"desc"},
     ],
     columns: [
-      {title:"Ticker", field:"Ticker", frozen:true, width:90, headerFilter:true},
-      {title:"Company", field:"Company", frozen:true, minWidth:220, headerFilter:true},
+      {title:"Ticker", field:"Ticker",  width:90, headerFilter:true},
+      {title:"Company", field:"Company",  minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score", frozen:true, headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Score", field:"Screener Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
@@ -449,11 +451,31 @@ const s = num(d["Screener Score"]);
   
 
   // Click a row to see full score breakdown without cluttering the table.
+
+  let lastClickedKey = null;
+
   table.on("rowClick", function(e, row){
-    try{ renderScoreDetails(row.getData()); }catch(err){ console.error(err); }
+    const d = row.getData() || {};
+    const key = String(d["Ticker"] || "");
+    const det = document.getElementById("scoreDetails");
+    const body = document.getElementById("scoreDetailsBody");
+    const hint = document.getElementById("scoreDetailsHint");
+
+    // Clicking the same row again toggles the breakdown closed.
+    if(lastClickedKey && key && lastClickedKey === key && det && det.open){
+      if(det) det.open = false;
+      if(body) body.innerHTML = "";
+      if(hint) hint.textContent = "Click a row in the table to populate it.";
+      lastClickedKey = null;
+      return;
+    }
+
+    lastClickedKey = key || null;
+
+    try{ renderScoreDetails(d); }catch(err){ console.error(err); }
   });
 
-  document.getElementById("preset").addEventListener("change", () => {
+document.getElementById("preset").addEventListener("change", () => {
     applyPreset();
     applyFilters();
   });

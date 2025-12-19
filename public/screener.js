@@ -1,3 +1,14 @@
+
+function pctMaybeSmart(x){
+  const n = Number(x);
+  if(!Number.isFinite(n)) return "–";
+  let v = n;
+  if(Math.abs(v) > 1.5 && Math.abs(v) <= 200){
+    v = v / 100;
+  }
+  return (v*100).toFixed(1) + "%";
+}
+
 window.__ASX_UI_READY = window.__ASX_UI_READY || false;
 function median(arr){
   const a = arr.filter(x => Number.isFinite(x)).sort((x,y)=>x-y);
@@ -24,6 +35,18 @@ function barRow(label, value, max){
       </div>
       <div class="bar"><div class="fill" style="width:${pctw}%;"></div></div>
     </div>`;
+}
+
+function pctSmart(x){
+  // Handles both fraction (0.08) and percent (8.0) inputs safely.
+  const n = Number(x);
+  if(!Number.isFinite(n)) return "";
+  let v = n;
+  // If value looks like a percent (e.g., 8.0 for 8%), convert to fraction.
+  if(Math.abs(v) > 1.5 && Math.abs(v) <= 200){
+    v = v / 100;
+  }
+  return (v*100).toFixed(1) + "%";
 }
 
 function pickBestWorst(parts){
@@ -503,11 +526,11 @@ const s = num(d["Screener Score"]);
 
       // Dividend fields (revamped): Yahoo raw + calculated latest yield
       {title:"Div Rate", field:"Dividend Rate (Yahoo)", headerTooltip:"Trailing annual dividend rate (cash per share) from Yahoo where available.", formatter:(c)=>fmt4(num(c.getValue())), visible:false},
-      {title:"Div Yld (Y!)", field:"Dividend Yield (Yahoo)", headerTooltip:"Dividend yield from Yahoo (may lag price).", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Div Yld (Y!)", field:"Dividend Yield (Yahoo)", headerTooltip:"Dividend yield from Yahoo (may lag price).", formatter:(c)=>pctSmart(num(c.getValue())), visible:false},
       {title:"Div Yld (Calc)", field:"Dividend Yield (Latest, Calc)", headerTooltip:"Calculated: trailing annual dividend rate ÷ latest share price.", formatter:(c)=>pct(num(c.getValue())), visible:true},
       {title:"Div Δ% (Y!→Calc)", field:"Dividend Yield Δ% (Yahoo→Calc)", headerTooltip:"Relative % difference between Yahoo's dividendYield and the calculated yield (from dividendRate ÷ latest price).", formatter:(c)=>pct(num(c.getValue())), visible:false},
       {title:"Payout", field:"Payout Ratio (Yahoo)", headerTooltip:"Payout ratio from Yahoo where available.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"5Y Avg Yld", field:"5Y Avg Dividend Yield (Yahoo)", headerTooltip:"Five-year average dividend yield from Yahoo.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"5Y Avg Yld", field:"5Y Avg Dividend Yield (Yahoo)", headerTooltip:"Five-year average dividend yield from Yahoo.", formatter:(c)=>pctSmart(num(c.getValue())), visible:false},
       {title:"Ex-Div", field:"Ex-Dividend Date (Yahoo)", headerTooltip:"Ex-dividend date from Yahoo.", visible:false},
       {title:"Last Div", field:"Last Dividend Value (Yahoo)", headerTooltip:"Last dividend amount (cash per share) from Yahoo.", formatter:(c)=>fmt4(num(c.getValue())), visible:false},
       {title:"Last Div Dt", field:"Last Dividend Date (Yahoo)", headerTooltip:"Last dividend date from Yahoo.", visible:false},

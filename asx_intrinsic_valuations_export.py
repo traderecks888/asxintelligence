@@ -91,6 +91,19 @@ def safe_get(d: Dict[str, Any], key: str, default=np.nan):
     except Exception:
         return default
 
+
+def norm_yield(v: Any) -> float:
+    """Normalize yield inputs to fraction (0.08 for 8%). If stored as 8.0, convert to 0.08."""
+    try:
+        x = float(v)
+        if np.isnan(x):
+            return np.nan
+        if abs(x) > 1.5 and abs(x) <= 200:
+            return x / 100.0
+        return x
+    except Exception:
+        return np.nan
+
 def epoch_to_date_str(x: Any) -> str:
     """Convert epoch seconds (Yahoo) to YYYY-MM-DD string."""
     try:
@@ -960,11 +973,11 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
         "Held % Institutions": base.get("held_pct_institutions", np.nan),
         "Short % Float": base.get("short_pct_float", np.nan),
         "Dividend Rate (Yahoo)": base.get("dividend_rate", np.nan),
-        "Dividend Yield (Yahoo)": base.get("dividend_yield", np.nan),
+        "Dividend Yield (Yahoo)": norm_yield(base.get("dividend_yield", np.nan)),
 
         # Raw Yahoo dividend metadata (as available)
         "Payout Ratio (Yahoo)": base.get("payoutRatio", np.nan),
-        "5Y Avg Dividend Yield (Yahoo)": base.get("fiveYearAvgDividendYield", np.nan),
+        "5Y Avg Dividend Yield (Yahoo)": norm_yield(base.get("fiveYearAvgDividendYield", np.nan)),
         "Ex-Dividend Date (Yahoo)": epoch_to_date_str(base.get("exDividendDate", np.nan)),
         "Last Dividend Value (Yahoo)": base.get("lastDividendValue", np.nan),
         "Last Dividend Date (Yahoo)": epoch_to_date_str(base.get("lastDividendDate", np.nan)),
@@ -978,10 +991,10 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
 
         # Delta between Yahoo's dividendYield and the calculated yield above (relative % change)
         "Dividend Yield Δ% (Yahoo→Calc)": (
-            ( (float(base.get("dividend_rate", np.nan)) / float(base["currentPrice"])) - float(base.get("dividend_yield", np.nan)) )
-            / float(base.get("dividend_yield", np.nan))
+            ( (float(base.get("dividend_rate", np.nan)) / float(base["currentPrice"])) - float(norm_yield(base.get("dividend_yield", np.nan))) )
+            / float(norm_yield(base.get("dividend_yield", np.nan)))
             if (not np.isnan(base.get("dividend_rate", np.nan)) and not np.isnan(base["currentPrice"]) and float(base["currentPrice"]) > 0
-                and not np.isnan(base.get("dividend_yield", np.nan)) and float(base.get("dividend_yield", np.nan)) != 0)
+                and not np.isnan(base.get("dividend_yield", np.nan)) and float(norm_yield(base.get("dividend_yield", np.nan))) != 0)
             else np.nan
         ),
 

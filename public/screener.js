@@ -368,22 +368,13 @@ function bootUI(rows){
     data: rows,
     height: "650px",
     layout: "fitDataFill",
-    responsiveLayout: "hide",
     columnDefaults: {minWidth: 120, headerWordWrap: true},
     pagination: true,
     paginationSize: 50,
     movableColumns: true,
+    selectable: 1,
     rowTooltip: function(e, row){
   const d = row.getData();
-  
-  // Keep header/body column widths aligned after data loads and column visibility changes
-  try{
-    table.on("dataLoaded", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    table.on("renderComplete", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    table.on("columnVisibilityChanged", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    table.on("columnResized", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
-    window.addEventListener("resize", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 50));
-  }catch(e){}
 const s = num(d["Screener Score"]);
   const v = num(d["Value Score"]);
   const q = num(d["Quality Score"]);
@@ -444,6 +435,16 @@ const s = num(d["Screener Score"]);
     ],
   });
 
+  // Alignment/scroll reliability: force a redraw after render/data/resize
+  try{
+    table.on("renderComplete", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    table.on("dataLoaded", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    table.on("columnResized", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    table.on("columnVisibilityChanged", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 0));
+    window.addEventListener("resize", ()=>setTimeout(()=>{ try{ table.redraw(true); }catch(e){} }, 50));
+  }catch(e){}
+
+
   wireSliders();
   rebuildCharts(rows);
 
@@ -456,13 +457,14 @@ const s = num(d["Screener Score"]);
 
   table.on("rowClick", function(e, row){
     const d = row.getData() || {};
-    const key = String(d["Ticker"] || "");
+    const key = String(d["Ticker"] || row.getIndex() || "");
     const det = document.getElementById("scoreDetails");
     const body = document.getElementById("scoreDetailsBody");
     const hint = document.getElementById("scoreDetailsHint");
 
-    // Clicking the same row again toggles the breakdown closed.
-    if(lastClickedKey && key && lastClickedKey === key && det && det.open){
+    // Toggle off if clicking the same selected row again
+    if(lastClickedKey && key && lastClickedKey === key){
+      try{ row.deselect(); }catch(_e){}
       if(det) det.open = false;
       if(body) body.innerHTML = "";
       if(hint) hint.textContent = "Click a row in the table to populate it.";
@@ -470,10 +472,18 @@ const s = num(d["Screener Score"]);
       return;
     }
 
+    // Select new row (keep highlight)
+    try{ table.deselectRow(); }catch(_e){}
+    try{ row.select(); }catch(_e){}
+
     lastClickedKey = key || null;
+
+    // Ensure the details section is visible/open when a row is selected
+    if(det) det.open = true;
 
     try{ renderScoreDetails(d); }catch(err){ console.error(err); }
   });
+
 
 document.getElementById("preset").addEventListener("change", () => {
     applyPreset();

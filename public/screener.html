@@ -57,9 +57,6 @@
     #table { width: 100%; }
   #table .tabulator { width: max-content; min-width: 100%; } /* allow overflow if many columns */
   #table .tabulator-tableholder { overflow-x: auto !important; scrollbar-gutter: stable both-edges; }
-
-      
-  /* Let the wrapper own horizontal scrolling; avoid double horizontal scrollbars */
 /* allow it to exceed container width */
 
 
@@ -67,6 +64,14 @@
   #table{ width: 100%; }
   #table .tabulator{ width: 100%; }
   #table .tabulator-tableholder{ overflow: auto !important; }
+
+    /* Tabulator: normal table scrolling (single scroll inside the table) */
+    #table { width: 100%; }
+    #table .tabulator { width: 100% !important; }
+    #table .tabulator, #table .tabulator * { box-sizing: border-box; }
+    #table .tabulator-tableholder { overflow: auto !important; }
+    #table .tabulator-header { overflow: hidden; }
+
 </style>
 </head>
 

@@ -91,6 +91,27 @@
     background: rgba(120, 160, 255, 0.18) !important;
   }
 
+
+  /* Remove Tabulator left row-header / responsive gutter (grey vertical band) */
+  .tabulator .tabulator-row-headers,
+  .tabulator .tabulator-row-header,
+  .tabulator .tabulator-responsive-collapse,
+  .tabulator .tabulator-cell.tabulator-responsive-collapse{
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+  }
+  .tabulator .tabulator-tableholder{
+    margin-left: 0 !important;
+  }
+
+
+  .tabulator .tabulator-table{ margin-left: 0 !important; }
+
 </style>
 </head>
 

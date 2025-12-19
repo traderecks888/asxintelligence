@@ -366,7 +366,7 @@ function wireSliders(){
   sliderLabel("yMaxV", win.yMax);
 }
 
-async async function load(){
+async function load(){
   try{
     hideErr();
 

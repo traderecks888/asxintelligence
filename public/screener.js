@@ -323,6 +323,7 @@ function wireDividendAxisControls(){
   const xEl = document.getElementById("divXMax");
   const yEl = document.getElementById("divYMax");
   const rEl = document.getElementById("divReset");
+
   const setLabels = ()=>{
     const x = xEl ? num(xEl.value) : NaN;
     const y = yEl ? num(yEl.value) : NaN;
@@ -358,7 +359,6 @@ function wireDividendAxisControls(){
     });
   }
 
-  // Initial labels
   setLabels();
 }
 
@@ -367,6 +367,8 @@ function wireColumnControls(){
   const key = document.getElementById("colShowIncome");
   const allDiv = document.getElementById("colShowAllDiv");
   const allHold = document.getElementById("colShowAllHold");
+  const valDisc = document.getElementById("colShowValDisc");
+  const valPriceT = document.getElementById("colShowValPrices");
   if(!table) return;
 
   // Column groups
@@ -393,6 +395,28 @@ function wireColumnControls(){
     "Held % Institutions",
   ];
 
+  const valDiscounts = [
+    "Residual Income Premium/(Discount)",
+    "Asset Based Premium/(Discount)",
+    "SOTP Premium/(Discount)",
+    "Dividend Discount Premium/(Discount)",
+    "EPV Premium/(Discount)",
+    "Option Pricing Premium/(Discount)",
+  ];
+
+  const valPriceFields = [
+    "DCF Price (5yr)",
+    "Residual Income Price",
+    "Asset Based Price",
+    "SOTP Price",
+    "Dividend Discount Price",
+    "Earnings Power Value (EPV) Price",
+    "Option Pricing Value",
+    "MOS Buy Price",
+    "Margin of Safety",
+  ];
+
+
   const showFields = (fields, show) => {
     fields.forEach(f=>{
       const col = table.getColumn(f);
@@ -405,6 +429,8 @@ function wireColumnControls(){
     // Base: hide all dividend/holdings except key set (which is on by default)
     showFields(allDividend, false);
     showFields(allHoldings, false);
+    showFields(valDiscounts, false);
+    showFields(valPriceFields, false);
 
     // Key toggle
     if(key && key.checked){
@@ -418,6 +444,13 @@ function wireColumnControls(){
     if(allHold && allHold.checked){
       showFields(allHoldings, true);
     }
+
+    if(valDisc && valDisc.checked){
+      showFields(valDiscounts, true);
+    }
+    if(valPriceT && valPriceT.checked){
+      showFields(valPriceFields, true);
+    }
   };
 
   // Default states (if elements exist)
@@ -426,6 +459,8 @@ function wireColumnControls(){
   if(key) key.addEventListener("change", refresh);
   if(allDiv) allDiv.addEventListener("change", refresh);
   if(allHold) allHold.addEventListener("change", refresh);
+  if(valDisc) valDisc.addEventListener("change", refresh);
+  if(valPriceT) valPriceT.addEventListener("change", refresh);
 
   refresh();
 }
@@ -489,45 +524,41 @@ function wireMacroTileTooltips(){
   const tips = {
     macroRegime: {
       title: "Regime",
-      body: `A quick read on "risk-on" vs "risk-off" using only your <b>current filtered universe</b>.<br><br>
+      body: `A quick read on <b>risk-on</b> vs <b>risk-off</b> using only your <b>current filtered universe</b>.<br><br>
 <b>Derived as:</b><br>
 • <code>Breadth</code> = % of stocks with <code>Return 1m &gt; 0</code><br>
 • <code>Vol</code> = median <code>Vol (20d, ann)</code><br><br>
 <b>Heuristic:</b><br>
 • Risk-on if breadth ≥ 55% and vol ≤ 35%<br>
 • Risk-off if breadth ≤ 45% and vol ≥ 35%<br>
-• Otherwise Mixed.<br><span class="muted">This is a dashboard signal, not a forecast.</span>`
+• Otherwise Mixed.<br><span class="muted">Signal, not prophecy.</span>`
     },
     macroBreadth: {
       title: "Breadth",
-      body: `Participation gauge: what fraction of stocks are up over the last month.<br><br>
-<b>Formula:</b> <code>#(Return 1m &gt; 0) / #(Return 1m available)</code> within your filtered results.<br>
-Higher breadth generally means moves are broad-based (healthier).`
+      body: `Participation: fraction of stocks up over the last month.<br><br>
+<b>Formula:</b> <code>#(Return 1m &gt; 0) / #(Return 1m available)</code> within your filtered results.`
     },
     macroVol: {
       title: "Median Vol",
-      body: `Typical volatility for your filtered universe.<br><br>
-<b>Derived as:</b> median of <code>Vol (20d, ann)</code> across stocks with data.<br>
-Lower vol often means calmer tape; higher vol means bigger swings (good for traders, riskier for investors).`
+      body: `Typical volatility in your filtered universe.<br><br>
+<b>Derived as:</b> median of <code>Vol (20d, ann)</code> across stocks with data.`
     },
     macroValuePocket: {
       title: "Value pocket",
       body: `How many names look "cheap + cash-generative" at the same time.<br><br>
 <b>Rule:</b> <code>DCF Premium/(Discount) &gt; 0</code> AND <code>FCF Yield &gt; 5%</code>.<br>
-The tile shows the % of stocks in your filtered universe that satisfy both.`
+Tile shows the % of filtered stocks that satisfy both.`
     },
     macroIncome: {
       title: "Income",
-      body: `Dividend health snapshot for your filtered universe.<br><br>
-<b>Yield:</b> median of <code>Dividend Yield (Latest, Calc)</code> across dividend payers (yield &gt; 0).<br>
+      body: `Dividend snapshot for your filtered universe.<br><br>
+<b>Yield:</b> median of <code>Dividend Yield (Latest, Calc)</code> for payers (yield &gt; 0).<br>
 <b>Payers:</b> % of filtered stocks with a positive calculated yield.<br>
-<b>Payout:</b> median of <code>Payout Ratio (Yahoo)</code> where available.<br>
-<span class="muted">Use with the dividend map to spot yield traps.</span>`
+<b>Payout:</b> median <code>Payout Ratio (Yahoo)</code> where available.`
     },
     macroSector: {
       title: "Leading sector",
-      body: `Which sector is scoring best <b>right now</b> in your filtered universe.<br><br>
-<b>Derived as:</b> sector with the highest median <code>Screener Score</code>, using only sectors with <code>n ≥ 6</code> stocks (to reduce noise).`
+      body: `Sector with the highest median <code>Screener Score</code> (only sectors with <code>n ≥ 6</code>).`
     }
   };
 
@@ -537,9 +568,7 @@ The tile shows the % of stocks in your filtered universe that satisfy both.`
     const card = valEl.closest(".card") || valEl;
     const t = tips[id];
     if(!t) return;
-
     const mk = () => `<strong>${t.title}</strong><div>${t.body}</div>`;
-
     card.addEventListener("mouseenter", (evt)=>showMacroTip(mk(), evt));
     card.addEventListener("mousemove", (evt)=>positionTip(ensureMacroTipEl(), evt));
     card.addEventListener("mouseleave", hideMacroTip);
@@ -770,7 +799,26 @@ const s = num(d["Screener Score"]);
 
       {title:"DCF Disc", field:"DCF Premium/(Discount)", formatter:(c)=>pct(num(c.getValue()))},
       {title:"FCF Yield", field:"FCF Yield", formatter:(c)=>pct(num(c.getValue()))},
-      {title:"U Count", field:"Undervalued Methods Count"},
+      {title:"Undervalued Count", field:"Undervalued Methods Count", width:160, headerTooltip:"Count of methods where (Intrinsic - Price)/Price > 0. Counted: DCF, Residual Income, Asset Based, SOTP, Dividend Discount. Enable valuation columns for each method.", formatter:(c)=>{const v=num(c.getValue()); return Number.isFinite(v)?String(Math.round(v)):"";}},
+
+      {title:"DCF $", field:"DCF Price (5yr)", headerTooltip:"DCF intrinsic price estimate (5yr model).", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+
+      {title:"RI Disc", field:"Residual Income Premium/(Discount)", headerTooltip:"Residual Income premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Asset Disc", field:"Asset Based Premium/(Discount)", headerTooltip:"Asset-based premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"SOTP Disc", field:"SOTP Premium/(Discount)", headerTooltip:"Sum-of-the-parts premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"DDM Disc", field:"Dividend Discount Premium/(Discount)", headerTooltip:"Dividend Discount premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"EPV Disc", field:"EPV Premium/(Discount)", headerTooltip:"Earnings Power Value premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"Opt Disc", field:"Option Pricing Premium/(Discount)", headerTooltip:"Option-pricing premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+
+      {title:"RI $", field:"Residual Income Price", headerTooltip:"Residual Income intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Asset $", field:"Asset Based Price", headerTooltip:"Asset-based intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"SOTP $", field:"SOTP Price", headerTooltip:"Sum-of-the-parts intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"DDM $", field:"Dividend Discount Price", headerTooltip:"Dividend Discount Model intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"EPV $", field:"Earnings Power Value (EPV) Price", headerTooltip:"EPV intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"Opt $", field:"Option Pricing Value", headerTooltip:"Option-pricing intrinsic value estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+
+      {title:"MOS Buy $", field:"MOS Buy Price", headerTooltip:"Margin-of-safety buy price = DCF price × (1 - MOS).", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"MOS", field:"Margin of Safety", headerTooltip:"Configured margin-of-safety % used to compute MOS Buy Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
 
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
@@ -1110,30 +1158,10 @@ function rebuildCharts(rows){
       score: num(r["Screener Score"])
     }))
     .filter(p => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y >= 0);
-    // Dividend map window defaults (robust against outliers)
-    const divX = divAll.map(p=>p.x).filter(Number.isFinite);
-    const divY = divAll.map(p=>p.y).filter(Number.isFinite);
-    const defX = Number.isFinite(quantile(divX, 0.99)) ? Math.min(0.60, Math.max(0.05, quantile(divX, 0.99))) : 0.15;
-    const defY = Number.isFinite(quantile(divY, 0.99)) ? Math.min(8.00, Math.max(0.75, quantile(divY, 0.99))) : 2.0;
-    window.__divDefaults = {xMax: defX, yMax: defY};
-    if(!window.__divUserSet){
-      const xEl = document.getElementById("divXMax");
-      const yEl = document.getElementById("divYMax");
-      if(xEl) xEl.value = defX;
-      if(yEl) yEl.value = defY;
-      setText("divXMaxV", Math.round(defX*100) + "%");
-      setText("divYMaxV", Math.round(defY*100) + "%");
-    }
-    const divWin = getDivWindow(window.__divDefaults);
 
-    // Filter dividend points to window to prevent a single outlier from flattening the whole chart
-    const divAllWin = divAll
-      .filter(p => p.x >= 0 && p.x <= divWin.xMax && p.y >= 0 && p.y <= divWin.yMax);
-
-
-    divAllWin.sort((a,b)=>b.m-a.m);
-    const ND = Math.min(900, divAllWin.length);
-    const divPts = divAllWin.slice(0, ND).map(p => ({
+    divAll.sort((a,b)=>b.m-a.m);
+    const ND = Math.min(900, divAll.length);
+    const divPts = divAll.slice(0, ND).map(p => ({
       x: p.x, y: p.y,
       r: Math.max(2, Math.min(16, p.m / 5e10 * 16)),
       label: p.label,
@@ -1157,10 +1185,10 @@ function rebuildCharts(rows){
           scales:{
             x:{ title:{display:true,text:"Dividend yield (latest, calc)"},
                 ticks:{ callback:(v)=> (Number(v)*100).toFixed(0)+"%" },
-                min:0, max: divWin.xMax },
+                suggestedMin:0, suggestedMax:0.15 },
             y:{ title:{display:true,text:"Payout ratio"},
                 ticks:{ callback:(v)=> (Number(v)*100).toFixed(0)+"%" },
-                min:0, max: divWin.yMax }
+                suggestedMin:0, suggestedMax:2.0 }
           }
         }
       });

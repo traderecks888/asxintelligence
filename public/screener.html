@@ -225,7 +225,7 @@
 .asxTip{
   position: fixed;
   z-index: 99999;
-  max-width: 380px;
+  max-width: 420px;
   background: rgba(15, 18, 25, 0.98);
   color: #fff;
   border: 1px solid rgba(255,255,255,0.14);
@@ -331,9 +331,13 @@
           <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
           <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
           <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
+
+          <label><input type="checkbox" id="colShowValDisc"> Show valuation method discounts (prem/(disc))</label>
+          <label><input type="checkbox" id="colShowValPrices"> Show valuation method prices (intrinsic $)</label>
+
         </div>
         <small style="display:block;margin-top:8px;color:#666;">
-          Tip: keep “key” on for a clean table; turn on “all” when doing deep dives.
+          Tip: keep “key” on for a clean table; turn on “all” or “valuation” when doing deep dives.
         </small>
       </details>
 

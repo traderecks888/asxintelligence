@@ -456,9 +456,21 @@
       show(`<strong>${esc(msg)}</strong><br><small>${esc(err ? (err.stack || err.message || err) : "")}</small>`);
     };
     window.addEventListener("error", function(e){
+      // Chrome can emit benign ResizeObserver loop warnings when layout is rapidly changing (e.g., charts + tables).
+      // They look scary but usually do not break the UI. Ignore them so the page doesn't show a fatal banner.
+      const msg = String((e && (e.message || (e.error && e.error.message))) || (e && e.error) || e || "");
+      if(msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop completed with undelivered notifications") || msg.includes("ResizeObserver loop limit exceeded")){
+        try{ console.warn("Ignored benign ResizeObserver warning:", msg); }catch(_){}
+        return;
+      }
       window.__asxFatal("Screener JavaScript error", e.error || e.message || e);
     });
     window.addEventListener("unhandledrejection", function(e){
+      const msg = String((e && (e.reason && (e.reason.message || e.reason))) || e || "");
+      if(msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop completed with undelivered notifications") || msg.includes("ResizeObserver loop limit exceeded")){
+        try{ console.warn("Ignored benign ResizeObserver promise warning:", msg); }catch(_){}
+        return;
+      }
       window.__asxFatal("Screener promise rejection", e.reason || e);
     });
     setTimeout(function(){

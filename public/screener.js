@@ -258,6 +258,55 @@ let histChart = null;
 let vqChart = null;
 let divChart = null;
 
+
+
+function initChartDefaults(){
+  if(!window.Chart) return;
+  if(window.__asxChartDefaults) return;
+  window.__asxChartDefaults = true;
+  try{
+    Chart.defaults.responsive = true;
+    Chart.defaults.maintainAspectRatio = false;
+    // Keep animations light (faster and fewer layout reflows)
+    if(Chart.defaults.animation) Chart.defaults.animation.duration = 0;
+    if(Chart.defaults.transitions){
+      for(const k of Object.keys(Chart.defaults.transitions)){
+        if(Chart.defaults.transitions[k] && Chart.defaults.transitions[k].animation){
+          Chart.defaults.transitions[k].animation.duration = 0;
+        }
+      }
+    }
+  }catch(e){}
+}
+
+function resizeCharts(){
+  const charts = [scatterChart, histChart, vqChart, divChart];
+  charts.forEach(ch=>{
+    if(!ch) return;
+    try{ ch.resize(); ch.update("none"); }catch(e){}
+  });
+}
+
+// Small debounce to avoid ResizeObserver spam on window resize.
+function debounce(fn, ms){
+  let t = null;
+  return (...args)=>{
+    clearTimeout(t);
+    t = setTimeout(()=>fn(...args), ms);
+  };
+}
+
+function wireChartsDetails(){
+  const det = document.getElementById("chartsDetails");
+  if(!det) return;
+  det.addEventListener("toggle", ()=>{
+    if(det.open){
+      // Chart.js needs a tick after becoming visible
+      setTimeout(resizeCharts, 60);
+    }
+  });
+}
+
 function setMeta(msg){ const el = document.getElementById("meta"); if(el) el.textContent = msg; }
 function showErr(msg){
   const el = document.getElementById("err");
@@ -788,10 +837,12 @@ const s = num(d["Screener Score"]);
     table.on("columnVisibilityChanged", ()=>setTimeout(safeRedraw, 0));
     table.on("columnResized", ()=>setTimeout(safeRedraw, 0));
     window.addEventListener("resize", ()=>setTimeout(safeRedraw, 50));
+    window.addEventListener("resize", debounce(()=>resizeCharts(), 180));
   }catch(e){}
 
 
   wireSliders();
+  wireChartsDetails();
   wireDrawerClose();
   rebuildCharts(rows);
 
@@ -934,6 +985,7 @@ function applyFilters(){
 }
 
 function rebuildCharts(rows){
+  initChartDefaults();
   const win = getChartWindow();
 
   const ptsAll = rows

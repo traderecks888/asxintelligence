@@ -223,6 +223,26 @@
 
 
 .mini{font-size:11px;opacity:0.9;white-space:nowrap;}
+
+  /* ==== Responsive chart sizing (keeps all charts readable & consistent) ==== */
+  :root{
+    --chartH: clamp(260px, 34vh, 420px);
+  }
+  #chartsDetails .card{ display:flex; flex-direction:column; align-items:stretch; }
+  #chartsDetails canvas{
+    display:block;
+    width:100% !important;
+    height: var(--chartH) !important;
+    max-height: var(--chartH);
+  }
+  #chartsGrid, .grid2{ align-items:stretch; }
+  /* On small screens, stack charts and slightly reduce height */
+  @media (max-width: 900px){
+    :root{ --chartH: clamp(220px, 32vh, 360px); }
+    #chartsGrid{ grid-template-columns: 1fr !important; }
+    .grid2{ grid-template-columns: 1fr !important; }
+  }
+
 </style>
 </head>
 
@@ -456,21 +476,9 @@
       show(`<strong>${esc(msg)}</strong><br><small>${esc(err ? (err.stack || err.message || err) : "")}</small>`);
     };
     window.addEventListener("error", function(e){
-      // Chrome can emit benign ResizeObserver loop warnings when layout is rapidly changing (e.g., charts + tables).
-      // They look scary but usually do not break the UI. Ignore them so the page doesn't show a fatal banner.
-      const msg = String((e && (e.message || (e.error && e.error.message))) || (e && e.error) || e || "");
-      if(msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop completed with undelivered notifications") || msg.includes("ResizeObserver loop limit exceeded")){
-        try{ console.warn("Ignored benign ResizeObserver warning:", msg); }catch(_){}
-        return;
-      }
       window.__asxFatal("Screener JavaScript error", e.error || e.message || e);
     });
     window.addEventListener("unhandledrejection", function(e){
-      const msg = String((e && (e.reason && (e.reason.message || e.reason))) || e || "");
-      if(msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop completed with undelivered notifications") || msg.includes("ResizeObserver loop limit exceeded")){
-        try{ console.warn("Ignored benign ResizeObserver promise warning:", msg); }catch(_){}
-        return;
-      }
       window.__asxFatal("Screener promise rejection", e.reason || e);
     });
     setTimeout(function(){
@@ -486,5 +494,29 @@
   </script>
 
   <script src="/screener.js?v=0.79" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
+
+<script>
+/* Ignore benign Chrome ResizeObserver loop warnings (Chart.js/Tabulator layout thrash can trigger these). */
+(function(){
+  const RO_MSG = "ResizeObserver loop completed with undelivered notifications";
+  window.addEventListener("error", function(ev){
+    try{
+      if(ev && ev.message && String(ev.message).includes(RO_MSG)){
+        ev.preventDefault();
+      }
+    }catch(_){}
+  });
+  window.addEventListener("unhandledrejection", function(ev){
+    try{
+      const reason = ev && ev.reason;
+      const msg = reason && (reason.message || (reason.toString && reason.toString()));
+      if(msg && String(msg).includes(RO_MSG)){
+        ev.preventDefault();
+      }
+    }catch(_){}
+  });
+})();
+</script>
+
 </body>
 </html>

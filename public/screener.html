@@ -42,6 +42,14 @@
 @media (max-width: 900px){ .grid2{grid-template-columns:1fr} .macroGrid{grid-template-columns:repeat(3,1fr)} }
 
 
+
+  html, body{ max-width:100%; overflow-x:hidden; }
+  #mainGrid{ max-width:100%; width:100%; overflow:hidden; }
+  #tableArea{ max-width:100%; width:100%; overflow:auto; }
+  /* Let Tabulator be wider than the container so the container can scroll */
+  #tableArea .tabulator{ width:max-content; min-width:100%; }
+  #tableArea .tabulator-tableholder{ overflow-x:auto !important; }
+
     /* Tabulator readability tweaks */
     .tabulator { font-size: 12px; }
     .tabulator .tabulator-header .tabulator-col { padding-top: 6px; padding-bottom: 6px; }
@@ -162,9 +170,7 @@
 
   /* ==== Right-side detail drawer (replaces pushing content down) ==== */
   #mainGrid{ display:flex; gap:14px; align-items:flex-start; }
-  #tableArea{ flex:1 1 auto; min-width:0; overflow:auto; max-width:100%; }
-  #tableArea .tabulator{ min-width:100%; width:max-content; }
-  #tableArea .tabulator-tableholder{ overflow-x:auto !important; }
+  #tableArea{ flex:1 1 auto; min-width:0; }
   .drawer{
     flex: 0 0 380px;
     max-width: 420px;
@@ -226,22 +232,18 @@
 
 .mini{font-size:11px;opacity:0.9;white-space:nowrap;}
 
-  
-  /* Chart boxes guarantee consistent canvas sizing across cards */
-  #chartsDetails .chartBox{
-    height: var(--chartH);
-    position: relative;
-  }
-  #chartsDetails .chartBox canvas{
-    height: 100% !important;
-    max-height: none !important;
-  }
-
-/* ==== Responsive chart sizing (keeps all charts readable & consistent) ==== */
+  /* ==== Responsive chart sizing (keeps all charts readable & consistent) ==== */
   :root{
     --chartH: clamp(260px, 34vh, 420px);
   }
-  #chartsDetails .card{ display:flex; flex-direction:column; align-items:stretch; }
+  
+  /* Apply the same sizing even when charts are NOT wrapped in <details id="chartsDetails"> */
+  .charts .card{ display:flex; flex-direction:column; align-items:stretch; }
+  .charts .card canvas{ flex:1 1 auto; height: var(--chartH) !important; width:100% !important; display:block; }
+  /* Specific hard guarantee for the sector chart */
+  #hist{ height: var(--chartH) !important; width: 100% !important; }
+
+#chartsDetails .card{ display:flex; flex-direction:column; align-items:stretch; }
   #chartsDetails canvas{
     display:block;
     width:100% !important;
@@ -345,26 +347,26 @@
           </div>
         </div>
 
-        <div class="chartBox"><canvas id="scatter"></canvas></div>
+        <canvas id="scatter"></canvas>
         <small>Tip: hover near a bubble; tooltip uses “nearest” mode so you don’t need pixel-perfect clicks.</small>
       </div>
 
       <div class="card">
         <strong>Sector median screener score</strong>
-        <div class="chartBox"><canvas id="hist"></canvas></div>
+        <canvas id="hist"></canvas>
         <small>Shows which sectors are scoring best on the composite score (median across stocks with data).</small>
       </div>
     </div>
     <div class="grid2">
       <div class="card">
         <strong>Value vs Quality (quadrant map)</strong>
-        <div class="chartBox"><canvas id="vq"></canvas></div>
+        <canvas id="vq"></canvas>
         <small>Each bubble is a stock (limited to top names by market cap for speed). Aim for high value + high quality.</small>
       </div>
 
       <div class="card">
         <strong>Dividend sustainability (Yield vs Payout)</strong>
-        <div class="chartBox"><canvas id="divmap"></canvas></div>
+        <canvas id="divmap"></canvas>
         <small>High yield + very high payout can be a yield trap. Look for decent yield with sane payout.</small>
       </div>
     </div>
@@ -491,12 +493,12 @@
     
     function isBenignResizeObserverNoise(e){
       try{
-        const msg = String((e && (e.message || e.reason || e.error && (e.error.message||e.error) || e)) || "");
+        const msg = String((e && (e.message || e.reason || (e.error && (e.error.message||e.error)) || e)) || "");
         return msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop limit exceeded");
       }catch(_){ return false; }
     }
     window.addEventListener("error", function(e){
-      if(isBenignResizeObserverNoise(e)) return; // ignore Chrome ResizeObserver noise
+      if(isBenignResizeObserverNoise(e)) return;
       window.__asxFatal("Screener JavaScript error", e.error || e.message || e);
     });
     window.addEventListener("unhandledrejection", function(e){

@@ -684,6 +684,22 @@ function updateMacroTiles(rows){
   }
 }
 
+
+let __resizeT = null;
+function resizeAllCharts(){
+  try{
+    if(scatterChart) scatterChart.resize();
+    if(histChart) histChart.resize();
+    if(vqChart) vqChart.resize();
+    if(divChart) divChart.resize();
+  }catch(_){}
+}
+function resizeAllChartsDebounced(){
+  if(__resizeT) clearTimeout(__resizeT);
+  __resizeT = setTimeout(resizeAllCharts, 120);
+}
+window.addEventListener("resize", resizeAllChartsDebounced);
+
 function bootUI(rows){
   const sectors = Array.from(new Set(rows.map(r => r["Sector"]).filter(Boolean))).sort();
   const sel = document.getElementById("sector");
@@ -1057,6 +1073,8 @@ function rebuildCharts(rows){
     type:"bar",
     data:{ labels, datasets:[{label:"Median Screener Score", data}]},
     options:{
+      maintainAspectRatio:false,
+
       plugins:{
         legend:{display:false},
         tooltip:{

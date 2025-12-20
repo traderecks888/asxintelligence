@@ -16,18 +16,6 @@ function median(arr){
   const m = Math.floor(a.length/2);
   return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
 }
-
-function quantile(arr, q){
-  const a = (arr || []).filter(Number.isFinite).slice().sort((x,y)=>x-y);
-  if(!a.length) return NaN;
-  const pos = (a.length - 1) * q;
-  const base = Math.floor(pos);
-  const rest = pos - base;
-  if(a[base+1] !== undefined){
-    return a[base] + rest * (a[base+1] - a[base]);
-  }
-  return a[base];
-}
 function pct(x){ return Number.isFinite(x) ? (x*100).toFixed(1) + "%" : "–"; }
 function fmt2(x){ return Number.isFinite(x) ? x.toFixed(2) : "–"; }
 function fmt4(x){ return Number.isFinite(x) ? x.toFixed(4) : "–"; }
@@ -59,6 +47,64 @@ function pctSmart(x){
     v = v / 100;
   }
   return (v*100).toFixed(1) + "%";
+}
+
+function valCell(v, price){
+  const n = Number(v);
+  const p = Number(price);
+  if(!Number.isFinite(n)) return "";
+  let bg = "transparent";
+  if(Number.isFinite(p) && p>0){
+    bg = (n >= p) ? "rgba(40,167,69,0.22)" : "rgba(220,53,69,0.20)";
+  }
+  const txt = fmt2(n);
+  return `<div style="background:${bg};padding:2px 6px;border-radius:8px;display:inline-block;min-width:72px;text-align:right;">${txt}</div>`;
+}
+
+function premCell(v){
+  const n = Number(v);
+  if(!Number.isFinite(n)) return "";
+  const bg = (n >= 0) ? "rgba(40,167,69,0.22)" : "rgba(220,53,69,0.20)";
+  const txt = pct(n);
+  return `<div style="background:${bg};padding:2px 6px;border-radius:8px;display:inline-block;min-width:72px;text-align:right;">${txt}</div>`;
+}
+
+function scoreCellTip(d){
+  const v = num(d["Value Score"]);
+  const q = num(d["Quality Score"]);
+  const r = num(d["Risk Score"]);
+  const lb = num(d["Liquidity Bonus"]);
+  const parts = [
+    `Value: <b>${Number.isFinite(v)?v.toFixed(1):"–"}</b>`,
+    `Quality: <b>${Number.isFinite(q)?q.toFixed(1):"–"}</b>`,
+    `Risk: <b>${Number.isFinite(r)?r.toFixed(1):"–"}</b>`,
+    `Liquidity bonus: <b>${Number.isFinite(lb)?lb.toFixed(1):"–"}</b>`
+  ].join("<br>");
+  return `<div style="font-size:12px;line-height:1.35;"><strong>Score parts</strong><br>${parts}<br><span style="opacity:0.85;">Click the row to open the full breakdown panel.</span></div>`;
+}
+
+function faSummary(d){
+  const v = num(d["Value Score"]);
+  const q = num(d["Quality Score"]);
+  const r = num(d["Risk Score"]);
+  const lb = num(d["Liquidity Bonus"]);
+  const vtxt = Number.isFinite(v)?v.toFixed(0):"–";
+  const qtxt = Number.isFinite(q)?q.toFixed(0):"–";
+  const rtxt = Number.isFinite(r)?r.toFixed(0):"–";
+  const ltxt = Number.isFinite(lb)?(lb>=0?("+"+lb.toFixed(0)):lb.toFixed(0)):"–";
+  return `<span class="mini">V ${vtxt} · Q ${qtxt} · R ${rtxt} · L ${ltxt}</span>`;
+}
+
+function taSummary(d){
+  const rsi = num(d["RSI14"]);
+  const atr = num(d["ATR% (14)"]);
+  const vol = num(d["Vol (20d, ann)"]);
+  const ret = num(d["Return 1m"]);
+  const a = Number.isFinite(atr)?(atr*100).toFixed(1)+"%":"–";
+  const v = Number.isFinite(vol)?(vol*100).toFixed(0)+"%":"–";
+  const s = Number.isFinite(rsi)?rsi.toFixed(0):"–";
+  const m = Number.isFinite(ret)?((ret*100).toFixed(1)+"%"):"–";
+  return `<span class="mini">RSI ${s} · ATR ${a} · Vol ${v} · 1m ${m}</span>`;
 }
 
 function pickBestWorst(parts){
@@ -309,66 +355,10 @@ function getChartWindow(){
 }
 
 
-function getDivWindow(fallback){
-  const fx = fallback && Number.isFinite(fallback.xMax) ? fallback.xMax : 0.15;
-  const fy = fallback && Number.isFinite(fallback.yMax) ? fallback.yMax : 2.0;
-  const xEl = document.getElementById("divXMax");
-  const yEl = document.getElementById("divYMax");
-  const xMax = xEl ? num(xEl.value) : fx;
-  const yMax = yEl ? num(yEl.value) : fy;
-  return {xMax: Number.isFinite(xMax) ? xMax : fx, yMax: Number.isFinite(yMax) ? yMax : fy};
-}
-
-function wireDividendAxisControls(){
-  const xEl = document.getElementById("divXMax");
-  const yEl = document.getElementById("divYMax");
-  const rEl = document.getElementById("divReset");
-
-  const setLabels = ()=>{
-    const x = xEl ? num(xEl.value) : NaN;
-    const y = yEl ? num(yEl.value) : NaN;
-    if(Number.isFinite(x)) setText("divXMaxV", Math.round(x*100) + "%");
-    if(Number.isFinite(y)) setText("divYMaxV", Math.round(y*100) + "%");
-  };
-
-  const apply = ()=>{
-    setLabels();
-    window.__divUserSet = true;
-    if(divChart){
-      const win = getDivWindow(window.__divDefaults || {xMax:0.15,yMax:2.0});
-      divChart.options.scales.x.min = 0;
-      divChart.options.scales.x.max = win.xMax;
-      divChart.options.scales.y.min = 0;
-      divChart.options.scales.y.max = win.yMax;
-      divChart.update("none");
-    }else{
-      rebuildCharts(filteredNow || raw || []);
-    }
-  };
-
-  if(xEl) xEl.addEventListener("input", apply);
-  if(yEl) yEl.addEventListener("input", apply);
-
-  if(rEl){
-    rEl.addEventListener("click", ()=>{
-      window.__divUserSet = false;
-      const d = window.__divDefaults || {xMax:0.15, yMax:2.0};
-      if(xEl) xEl.value = d.xMax;
-      if(yEl) yEl.value = d.yMax;
-      apply();
-    });
-  }
-
-  setLabels();
-}
-
-
 function wireColumnControls(){
   const key = document.getElementById("colShowIncome");
   const allDiv = document.getElementById("colShowAllDiv");
   const allHold = document.getElementById("colShowAllHold");
-  const valDisc = document.getElementById("colShowValDisc");
-  const valPriceT = document.getElementById("colShowValPrices");
   if(!table) return;
 
   // Column groups
@@ -395,28 +385,6 @@ function wireColumnControls(){
     "Held % Institutions",
   ];
 
-  const valDiscounts = [
-    "Residual Income Premium/(Discount)",
-    "Asset Based Premium/(Discount)",
-    "SOTP Premium/(Discount)",
-    "Dividend Discount Premium/(Discount)",
-    "EPV Premium/(Discount)",
-    "Option Pricing Premium/(Discount)",
-  ];
-
-  const valPriceFields = [
-    "DCF Price (5yr)",
-    "Residual Income Price",
-    "Asset Based Price",
-    "SOTP Price",
-    "Dividend Discount Price",
-    "Earnings Power Value (EPV) Price",
-    "Option Pricing Value",
-    "MOS Buy Price",
-    "Margin of Safety",
-  ];
-
-
   const showFields = (fields, show) => {
     fields.forEach(f=>{
       const col = table.getColumn(f);
@@ -429,8 +397,6 @@ function wireColumnControls(){
     // Base: hide all dividend/holdings except key set (which is on by default)
     showFields(allDividend, false);
     showFields(allHoldings, false);
-    showFields(valDiscounts, false);
-    showFields(valPriceFields, false);
 
     // Key toggle
     if(key && key.checked){
@@ -444,13 +410,6 @@ function wireColumnControls(){
     if(allHold && allHold.checked){
       showFields(allHoldings, true);
     }
-
-    if(valDisc && valDisc.checked){
-      showFields(valDiscounts, true);
-    }
-    if(valPriceT && valPriceT.checked){
-      showFields(valPriceFields, true);
-    }
   };
 
   // Default states (if elements exist)
@@ -459,11 +418,80 @@ function wireColumnControls(){
   if(key) key.addEventListener("change", refresh);
   if(allDiv) allDiv.addEventListener("change", refresh);
   if(allHold) allHold.addEventListener("change", refresh);
-  if(valDisc) valDisc.addEventListener("change", refresh);
-  if(valPriceT) valPriceT.addEventListener("change", refresh);
 
   refresh();
 }
+
+
+function setVisibleFields(fields){
+  const want = new Set(fields);
+  table.getColumns().forEach(col=>{
+    const f = col.getField();
+    if(!f) return;
+    if(want.has(f)) col.show();
+    else col.hide();
+  });
+}
+
+function applyTableView(name){
+  const core = ["Ticker","Company","Sector","Screener Score","Price","Market Cap","FA Summary","TA Summary"];
+  const scoreParts = core.concat(["Value Score","Quality Score","Risk Score","Liquidity Bonus"]);
+  const fundamentals = core.concat([
+    "Undervalued Methods Count",
+    "DCF Premium/(Discount)",
+    "FCF Yield",
+    "Book Value / Share (Assets-Liab)",
+    "ROE",
+    "Net Debt/EBITDA",
+    "Dividend Yield (Latest, Calc)",
+    "Payout Ratio (Yahoo)",
+    "Held % Institutions",
+    "Held % Insiders"
+  ]);
+  const technicals = core.concat(["RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)","Return 1m","Avg $Vol 20d"]);
+  const valDollar = core.concat([
+    "Undervalued Methods Count",
+    "DCF Price (5yr)","Residual Income Price","Asset Based Price","SOTP Price","Dividend Discount Price","Earnings Power Value (EPV) Price","Option Pricing Value",
+    // then the % premium/discounts in the same order
+    "DCF Premium/(Discount)","Residual Income Premium/(Discount)","Asset Based Premium/(Discount)","SOTP Premium/(Discount)","Dividend Discount Premium/(Discount)","EPV Premium/(Discount)","Option Pricing Premium/(Discount)"
+  ]);
+  const valPct = core.concat([
+    "Undervalued Methods Count",
+    "DCF Premium/(Discount)","Residual Income Premium/(Discount)","Asset Based Premium/(Discount)","SOTP Premium/(Discount)","Dividend Discount Premium/(Discount)","EPV Premium/(Discount)","Option Pricing Premium/(Discount)"
+  ]);
+
+  if(name==="core") setVisibleFields(core);
+  else if(name==="fa") setVisibleFields(fundamentals);
+  else if(name==="ta") setVisibleFields(technicals);
+  else if(name==="score") setVisibleFields(scoreParts);
+  else if(name==="val$") setVisibleFields(valDollar);
+  else if(name==="valpct") setVisibleFields(valPct);
+  else if(name==="all"){
+    table.getColumns().forEach(c=>{ try{ c.show(); }catch(e){} });
+  }
+
+  try{ localStorage.setItem("asx_table_view", name); }catch(e){}
+}
+
+function wireTableViews(){
+  const bind=(id, name)=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.addEventListener("click", ()=>applyTableView(name));
+  };
+  bind("tvCore","core");
+  bind("tvFA","fa");
+  bind("tvTA","ta");
+  bind("tvScore","score");
+  bind("tvVal$","val$");
+  bind("tvValPct","valpct");
+  bind("tvAll","all");
+
+  let v="core";
+  try{ v = localStorage.getItem("asx_table_view") || "core"; }catch(e){}
+  applyTableView(v);
+}
+
 
 
 
@@ -479,102 +507,6 @@ function safeRedraw(){
       holder.scrollTop = st;
     }
   }catch(e){}
-}
-
-
-let __macroTipEl = null;
-
-function ensureMacroTipEl(){
-  if(__macroTipEl) return __macroTipEl;
-  __macroTipEl = document.getElementById("macroTip");
-  return __macroTipEl;
-}
-
-function positionTip(el, evt){
-  if(!el || !evt) return;
-  const pad = 12;
-  const vw = window.innerWidth || 1024;
-  const vh = window.innerHeight || 768;
-  const rect = el.getBoundingClientRect();
-  let x = evt.clientX + pad;
-  let y = evt.clientY + pad;
-  const w = rect.width || 320;
-  const h = rect.height || 120;
-  if(x + w + pad > vw) x = Math.max(pad, evt.clientX - w - pad);
-  if(y + h + pad > vh) y = Math.max(pad, evt.clientY - h - pad);
-  el.style.left = x + "px";
-  el.style.top = y + "px";
-}
-
-function showMacroTip(html, evt){
-  const el = ensureMacroTipEl();
-  if(!el) return;
-  el.innerHTML = html;
-  el.style.display = "block";
-  positionTip(el, evt);
-}
-
-function hideMacroTip(){
-  const el = ensureMacroTipEl();
-  if(!el) return;
-  el.style.display = "none";
-}
-
-function wireMacroTileTooltips(){
-  const tips = {
-    macroRegime: {
-      title: "Regime",
-      body: `A quick read on <b>risk-on</b> vs <b>risk-off</b> using only your <b>current filtered universe</b>.<br><br>
-<b>Derived as:</b><br>
-• <code>Breadth</code> = % of stocks with <code>Return 1m &gt; 0</code><br>
-• <code>Vol</code> = median <code>Vol (20d, ann)</code><br><br>
-<b>Heuristic:</b><br>
-• Risk-on if breadth ≥ 55% and vol ≤ 35%<br>
-• Risk-off if breadth ≤ 45% and vol ≥ 35%<br>
-• Otherwise Mixed.<br><span class="muted">Signal, not prophecy.</span>`
-    },
-    macroBreadth: {
-      title: "Breadth",
-      body: `Participation: fraction of stocks up over the last month.<br><br>
-<b>Formula:</b> <code>#(Return 1m &gt; 0) / #(Return 1m available)</code> within your filtered results.`
-    },
-    macroVol: {
-      title: "Median Vol",
-      body: `Typical volatility in your filtered universe.<br><br>
-<b>Derived as:</b> median of <code>Vol (20d, ann)</code> across stocks with data.`
-    },
-    macroValuePocket: {
-      title: "Value pocket",
-      body: `How many names look "cheap + cash-generative" at the same time.<br><br>
-<b>Rule:</b> <code>DCF Premium/(Discount) &gt; 0</code> AND <code>FCF Yield &gt; 5%</code>.<br>
-Tile shows the % of filtered stocks that satisfy both.`
-    },
-    macroIncome: {
-      title: "Income",
-      body: `Dividend snapshot for your filtered universe.<br><br>
-<b>Yield:</b> median of <code>Dividend Yield (Latest, Calc)</code> for payers (yield &gt; 0).<br>
-<b>Payers:</b> % of filtered stocks with a positive calculated yield.<br>
-<b>Payout:</b> median <code>Payout Ratio (Yahoo)</code> where available.`
-    },
-    macroSector: {
-      title: "Leading sector",
-      body: `Sector with the highest median <code>Screener Score</code> (only sectors with <code>n ≥ 6</code>).`
-    }
-  };
-
-  const bind = (id) => {
-    const valEl = document.getElementById(id);
-    if(!valEl) return;
-    const card = valEl.closest(".card") || valEl;
-    const t = tips[id];
-    if(!t) return;
-    const mk = () => `<strong>${t.title}</strong><div>${t.body}</div>`;
-    card.addEventListener("mouseenter", (evt)=>showMacroTip(mk(), evt));
-    card.addEventListener("mousemove", (evt)=>positionTip(ensureMacroTipEl(), evt));
-    card.addEventListener("mouseleave", hideMacroTip);
-  };
-
-  Object.keys(tips).forEach(bind);
 }
 
 function wireSliders(){
@@ -789,7 +721,10 @@ const s = num(d["Screener Score"]);
       {title:"Company", field:"Company",  minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
 
-      {title:"Score", field:"Screener Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"FA", field:"FA Summary", headerTooltip:"Fundamental summary (Value/Quality/Risk/Liquidity).", formatter:(c)=>faSummary(c.getRow().getData()), headerSort:false, width:210},
+      {title:"TA", field:"TA Summary", headerTooltip:"Technical summary (RSI/ATR/Vol/1m).", formatter:(c)=>taSummary(c.getRow().getData()), headerSort:false, width:230},
+
+      {title:"Score", field:"Screener Score", cellTooltip:(e,c)=>scoreCellTip(c.getRow().getData()),  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
@@ -797,28 +732,26 @@ const s = num(d["Screener Score"]);
       {title:"Price", field:"Price", formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Mkt Cap", field:"Market Cap", formatter:(c)=>fmtInt(num(c.getValue()))},
 
-      {title:"DCF Disc", field:"DCF Premium/(Discount)", formatter:(c)=>pct(num(c.getValue()))},
-      {title:"FCF Yield", field:"FCF Yield", formatter:(c)=>pct(num(c.getValue()))},
-      {title:"Undervalued Count", field:"Undervalued Methods Count", width:160, headerTooltip:"Count of methods where (Intrinsic - Price)/Price > 0. Counted: DCF, Residual Income, Asset Based, SOTP, Dividend Discount. Enable valuation columns for each method.", formatter:(c)=>{const v=num(c.getValue()); return Number.isFinite(v)?String(Math.round(v)):"";}},
+      
+      // Intrinsic value methods ($ per share) – compare to current price. Green = above price, red = below.
+      {title:"DCF $", field:"DCF Price (5yr)", headerTooltip:"DCF intrinsic value per share (5yr DCF).", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
+      {title:"RI $", field:"Residual Income Price", headerTooltip:"Residual income intrinsic value per share.", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
+      {title:"Asset $", field:"Asset Based Price", headerTooltip:"Asset-based intrinsic value per share.", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
+      {title:"SOTP $", field:"SOTP Price", headerTooltip:"Sum-of-the-parts intrinsic value per share.", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
+      {title:"DDM $", field:"Dividend Discount Price", headerTooltip:"Dividend discount model intrinsic value per share.", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
+      {title:"EPV $", field:"Earnings Power Value (EPV) Price", headerTooltip:"Earnings power value intrinsic value per share.", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
+      {title:"Opt $", field:"Option Pricing Value", headerTooltip:"Option pricing value per share (model-based).", formatter:(c)=>valCell(c.getValue(), c.getRow().getData()["Price"]), visible:false},
 
-      {title:"DCF $", field:"DCF Price (5yr)", headerTooltip:"DCF intrinsic price estimate (5yr model).", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-
-      {title:"RI Disc", field:"Residual Income Premium/(Discount)", headerTooltip:"Residual Income premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Asset Disc", field:"Asset Based Premium/(Discount)", headerTooltip:"Asset-based premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"SOTP Disc", field:"SOTP Premium/(Discount)", headerTooltip:"Sum-of-the-parts premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"DDM Disc", field:"Dividend Discount Premium/(Discount)", headerTooltip:"Dividend Discount premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"EPV Disc", field:"EPV Premium/(Discount)", headerTooltip:"Earnings Power Value premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Opt Disc", field:"Option Pricing Premium/(Discount)", headerTooltip:"Option-pricing premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-
-      {title:"RI $", field:"Residual Income Price", headerTooltip:"Residual Income intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Asset $", field:"Asset Based Price", headerTooltip:"Asset-based intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"SOTP $", field:"SOTP Price", headerTooltip:"Sum-of-the-parts intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"DDM $", field:"Dividend Discount Price", headerTooltip:"Dividend Discount Model intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"EPV $", field:"Earnings Power Value (EPV) Price", headerTooltip:"EPV intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Opt $", field:"Option Pricing Value", headerTooltip:"Option-pricing intrinsic value estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-
-      {title:"MOS Buy $", field:"MOS Buy Price", headerTooltip:"Margin-of-safety buy price = DCF price × (1 - MOS).", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"MOS", field:"Margin of Safety", headerTooltip:"Configured margin-of-safety % used to compute MOS Buy Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      // Intrinsic value methods (% premium/discount vs current price). Green = undervalued (>0), red = overvalued (<0).
+      {title:"DCF %", field:"DCF Premium/(Discount)", headerTooltip:"DCF premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+      {title:"RI %", field:"Residual Income Premium/(Discount)", headerTooltip:"Residual income premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+      {title:"Asset %", field:"Asset Based Premium/(Discount)", headerTooltip:"Asset-based premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+      {title:"SOTP %", field:"SOTP Premium/(Discount)", headerTooltip:"SOTP premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+      {title:"DDM %", field:"Dividend Discount Premium/(Discount)", headerTooltip:"DDM premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+      {title:"EPV %", field:"EPV Premium/(Discount)", headerTooltip:"EPV premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+      {title:"Opt %", field:"Option Pricing Premium/(Discount)", headerTooltip:"Option pricing premium/discount vs current price.", formatter:(c)=>premCell(c.getValue()), visible:false},
+{title:"FCF Yield", field:"FCF Yield", formatter:(c)=>pct(num(c.getValue()))},
+      {title:"Undervalued Count", field:"Undervalued Methods Count", headerTooltip:"How many valuation methods say the stock is undervalued (premium/discount > 0). Counted methods: DCF, Residual Income, Asset Based, SOTP, Dividend Discount.", width:160},
 
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"BV/Share", field:"Book Value / Share (Assets-Liab)", formatter:(c)=>fmt2(num(c.getValue()))},
@@ -859,12 +792,11 @@ const s = num(d["Screener Score"]);
 
 
   wireSliders();
-  wireDividendAxisControls();
-  wireMacroTileTooltips();
   wireDrawerClose();
   rebuildCharts(rows);
 
   wireColumnControls();
+  wireTableViews();
   
 
   // Click a row to see full score breakdown without cluttering the table.

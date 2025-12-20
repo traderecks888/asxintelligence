@@ -27,6 +27,10 @@
     #err{display:none;margin-top:10px;padding:10px;border:1px solid #f1c40f;border-radius:12px;background:#fff7e6}
     #err code{background:#fff3cd;padding:2px 6px;border-radius:8px}
     details{margin-top:10px}
+    #chartsDetails > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+    #chartsDetails > summary::-webkit-details-marker{display:none}
+    #chartsDetails[open] > summary{margin-bottom:10px}
+
     .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
     .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
     input[type="range"]{width:100%}
@@ -35,20 +39,6 @@
 .badge{border:1px solid #ddd;border-radius:999px;padding:4px 8px;font-size:12px;background:#f8f8f8}
 .bar{height:10px;background:#eee;border-radius:999px;overflow:hidden}
 .fill{height:100%;background:#111;border-radius:999px}
-
-/* ---- Collapsible charts ---- */
-#chartsDetails{ border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:10px 12px; background: rgba(255,255,255,0.02); }
-#chartsDetails > summary{ cursor:pointer; user-select:none; list-style:none; display:flex; align-items:center; gap:10px; }
-#chartsDetails > summary::-webkit-details-marker{ display:none; }
-#chartsDetails[open] > summary{ margin-bottom:6px; }
-
-/* Consistent, readable chart height */
-#chartsDetails .card canvas{ height: clamp(260px, 34vh, 420px) !important; width:100% !important; display:block; }
-@media (max-width: 900px){
-  #chartsDetails .grid2{ grid-template-columns: 1fr !important; }
-  #chartsDetails .card canvas{ height: clamp(240px, 32vh, 360px) !important; }
-}
-
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
 .macroGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:10px}
 .macroVal{font-size:18px;font-weight:800;margin-top:2px}
@@ -267,12 +257,6 @@
 }
 .btnSmall:hover{ background: rgba(255,255,255,0.12); }
 
-
-/* ---- Table containment ---- */
-html, body{ max-width:100%; overflow-x:hidden; }
-#tableArea{ overflow:auto; max-width:100%; }
-#tableArea .tabulator-tableholder{ overflow-x:auto !important; }
-
 </style>
 </head>
 
@@ -375,7 +359,9 @@ html, body{ max-width:100%; overflow-x:hidden; }
       </div>
     </details>
 
-    <div class="charts">
+    <details id="chartsDetails" open>
+      <summary><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
+<div class="charts">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong>DCF discount vs FCF yield</strong>
@@ -419,11 +405,7 @@ html, body{ max-width:100%; overflow-x:hidden; }
         <small>Shows which sectors are scoring best on the composite score (median across stocks with data).</small>
       </div>
     </div>
-    
-  <details id="chartsDetails" open style="margin-top:12px;">
-    <summary><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
-    <div style="margin-top:12px;">
-<div class="grid2">
+    <div class="grid2">
       <div class="card">
         <strong>Value vs Quality (quadrant map)</strong>
         <canvas id="vq"></canvas>
@@ -457,8 +439,7 @@ html, body{ max-width:100%; overflow-x:hidden; }
 
     
     
-    </div>
-  </details>
+    </details>
 
 <div id="mainGrid">
       <div id="tableArea">
@@ -524,23 +505,5 @@ html, body{ max-width:100%; overflow-x:hidden; }
   <script src="/screener.js?v=0.79" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
 
   <div id="macroTip" class="asxTip" style="display:none;"></div>
-
-<script>
-(function(){
-  function isBenignResizeObserverNoise(e){
-    try{
-      const msg = String((e && (e.message || e.reason || (e.error && (e.error.message||e.error)) || e)) || "");
-      return msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop limit exceeded");
-    }catch(_){ return false; }
-  }
-  window.addEventListener("error", function(e){
-    if(isBenignResizeObserverNoise(e)) { e.preventDefault && e.preventDefault(); return; }
-  });
-  window.addEventListener("unhandledrejection", function(e){
-    if(isBenignResizeObserverNoise(e)) { e.preventDefault && e.preventDefault(); return; }
-  });
-})();
-</script>
-
 </body>
 </html>

@@ -207,7 +207,6 @@ function renderScoreDetails(d){
 let raw = [];
 let filteredNow = [];
 let table = null;
-Chart.defaults.maintainAspectRatio = false;
 let scatterChart = null;
 let histChart = null;
 let vqChart = null;
@@ -1195,6 +1194,28 @@ function rebuildCharts(rows){
       });
     }
   }catch(e){ console.warn("Dividend chart error", e); }
+
+  // Charts collapse/expand: resize charts & table when toggled
+  try{
+    const det = document.getElementById("chartsDetails");
+    if(det && !det.__asxBound){
+      det.__asxBound = true;
+      det.addEventListener("toggle", ()=>{
+        setTimeout(()=>{
+          try{
+            if(det.open){
+              if(scatterChart) scatterChart.resize();
+              if(histChart) histChart.resize();
+              if(vqChart) vqChart.resize();
+              if(divChart) divChart.resize();
+            }
+          }catch(_){}
+          try{ if(table) table.redraw(true); }catch(_){}
+        }, 80);
+      });
+    }
+  }catch(_){}
+
 
 }
 

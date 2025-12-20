@@ -16,6 +16,18 @@ function median(arr){
   const m = Math.floor(a.length/2);
   return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
 }
+
+function quantile(arr, q){
+  const a = (arr || []).filter(Number.isFinite).slice().sort((x,y)=>x-y);
+  if(!a.length) return NaN;
+  const pos = (a.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  if(a[base+1] !== undefined){
+    return a[base] + rest * (a[base+1] - a[base]);
+  }
+  return a[base];
+}
 function pct(x){ return Number.isFinite(x) ? (x*100).toFixed(1) + "%" : "–"; }
 function fmt2(x){ return Number.isFinite(x) ? x.toFixed(2) : "–"; }
 function fmt4(x){ return Number.isFinite(x) ? x.toFixed(4) : "–"; }
@@ -297,6 +309,60 @@ function getChartWindow(){
 }
 
 
+function getDivWindow(fallback){
+  const fx = fallback && Number.isFinite(fallback.xMax) ? fallback.xMax : 0.15;
+  const fy = fallback && Number.isFinite(fallback.yMax) ? fallback.yMax : 2.0;
+  const xEl = document.getElementById("divXMax");
+  const yEl = document.getElementById("divYMax");
+  const xMax = xEl ? num(xEl.value) : fx;
+  const yMax = yEl ? num(yEl.value) : fy;
+  return {xMax: Number.isFinite(xMax) ? xMax : fx, yMax: Number.isFinite(yMax) ? yMax : fy};
+}
+
+function wireDividendAxisControls(){
+  const xEl = document.getElementById("divXMax");
+  const yEl = document.getElementById("divYMax");
+  const rEl = document.getElementById("divReset");
+  const setLabels = ()=>{
+    const x = xEl ? num(xEl.value) : NaN;
+    const y = yEl ? num(yEl.value) : NaN;
+    if(Number.isFinite(x)) setText("divXMaxV", Math.round(x*100) + "%");
+    if(Number.isFinite(y)) setText("divYMaxV", Math.round(y*100) + "%");
+  };
+
+  const apply = ()=>{
+    setLabels();
+    window.__divUserSet = true;
+    if(divChart){
+      const win = getDivWindow(window.__divDefaults || {xMax:0.15,yMax:2.0});
+      divChart.options.scales.x.min = 0;
+      divChart.options.scales.x.max = win.xMax;
+      divChart.options.scales.y.min = 0;
+      divChart.options.scales.y.max = win.yMax;
+      divChart.update("none");
+    }else{
+      rebuildCharts(filteredNow || raw || []);
+    }
+  };
+
+  if(xEl) xEl.addEventListener("input", apply);
+  if(yEl) yEl.addEventListener("input", apply);
+
+  if(rEl){
+    rEl.addEventListener("click", ()=>{
+      window.__divUserSet = false;
+      const d = window.__divDefaults || {xMax:0.15, yMax:2.0};
+      if(xEl) xEl.value = d.xMax;
+      if(yEl) yEl.value = d.yMax;
+      apply();
+    });
+  }
+
+  // Initial labels
+  setLabels();
+}
+
+
 function wireColumnControls(){
   const key = document.getElementById("colShowIncome");
   const allDiv = document.getElementById("colShowAllDiv");
@@ -378,6 +444,108 @@ function safeRedraw(){
       holder.scrollTop = st;
     }
   }catch(e){}
+}
+
+
+let __macroTipEl = null;
+
+function ensureMacroTipEl(){
+  if(__macroTipEl) return __macroTipEl;
+  __macroTipEl = document.getElementById("macroTip");
+  return __macroTipEl;
+}
+
+function positionTip(el, evt){
+  if(!el || !evt) return;
+  const pad = 12;
+  const vw = window.innerWidth || 1024;
+  const vh = window.innerHeight || 768;
+  const rect = el.getBoundingClientRect();
+  let x = evt.clientX + pad;
+  let y = evt.clientY + pad;
+  const w = rect.width || 320;
+  const h = rect.height || 120;
+  if(x + w + pad > vw) x = Math.max(pad, evt.clientX - w - pad);
+  if(y + h + pad > vh) y = Math.max(pad, evt.clientY - h - pad);
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+}
+
+function showMacroTip(html, evt){
+  const el = ensureMacroTipEl();
+  if(!el) return;
+  el.innerHTML = html;
+  el.style.display = "block";
+  positionTip(el, evt);
+}
+
+function hideMacroTip(){
+  const el = ensureMacroTipEl();
+  if(!el) return;
+  el.style.display = "none";
+}
+
+function wireMacroTileTooltips(){
+  const tips = {
+    macroRegime: {
+      title: "Regime",
+      body: `A quick read on "risk-on" vs "risk-off" using only your <b>current filtered universe</b>.<br><br>
+<b>Derived as:</b><br>
+• <code>Breadth</code> = % of stocks with <code>Return 1m &gt; 0</code><br>
+• <code>Vol</code> = median <code>Vol (20d, ann)</code><br><br>
+<b>Heuristic:</b><br>
+• Risk-on if breadth ≥ 55% and vol ≤ 35%<br>
+• Risk-off if breadth ≤ 45% and vol ≥ 35%<br>
+• Otherwise Mixed.<br><span class="muted">This is a dashboard signal, not a forecast.</span>`
+    },
+    macroBreadth: {
+      title: "Breadth",
+      body: `Participation gauge: what fraction of stocks are up over the last month.<br><br>
+<b>Formula:</b> <code>#(Return 1m &gt; 0) / #(Return 1m available)</code> within your filtered results.<br>
+Higher breadth generally means moves are broad-based (healthier).`
+    },
+    macroVol: {
+      title: "Median Vol",
+      body: `Typical volatility for your filtered universe.<br><br>
+<b>Derived as:</b> median of <code>Vol (20d, ann)</code> across stocks with data.<br>
+Lower vol often means calmer tape; higher vol means bigger swings (good for traders, riskier for investors).`
+    },
+    macroValuePocket: {
+      title: "Value pocket",
+      body: `How many names look "cheap + cash-generative" at the same time.<br><br>
+<b>Rule:</b> <code>DCF Premium/(Discount) &gt; 0</code> AND <code>FCF Yield &gt; 5%</code>.<br>
+The tile shows the % of stocks in your filtered universe that satisfy both.`
+    },
+    macroIncome: {
+      title: "Income",
+      body: `Dividend health snapshot for your filtered universe.<br><br>
+<b>Yield:</b> median of <code>Dividend Yield (Latest, Calc)</code> across dividend payers (yield &gt; 0).<br>
+<b>Payers:</b> % of filtered stocks with a positive calculated yield.<br>
+<b>Payout:</b> median of <code>Payout Ratio (Yahoo)</code> where available.<br>
+<span class="muted">Use with the dividend map to spot yield traps.</span>`
+    },
+    macroSector: {
+      title: "Leading sector",
+      body: `Which sector is scoring best <b>right now</b> in your filtered universe.<br><br>
+<b>Derived as:</b> sector with the highest median <code>Screener Score</code>, using only sectors with <code>n ≥ 6</code> stocks (to reduce noise).`
+    }
+  };
+
+  const bind = (id) => {
+    const valEl = document.getElementById(id);
+    if(!valEl) return;
+    const card = valEl.closest(".card") || valEl;
+    const t = tips[id];
+    if(!t) return;
+
+    const mk = () => `<strong>${t.title}</strong><div>${t.body}</div>`;
+
+    card.addEventListener("mouseenter", (evt)=>showMacroTip(mk(), evt));
+    card.addEventListener("mousemove", (evt)=>positionTip(ensureMacroTipEl(), evt));
+    card.addEventListener("mouseleave", hideMacroTip);
+  };
+
+  Object.keys(tips).forEach(bind);
 }
 
 function wireSliders(){
@@ -643,6 +811,8 @@ const s = num(d["Screener Score"]);
 
 
   wireSliders();
+  wireDividendAxisControls();
+  wireMacroTileTooltips();
   wireDrawerClose();
   rebuildCharts(rows);
 
@@ -940,10 +1110,30 @@ function rebuildCharts(rows){
       score: num(r["Screener Score"])
     }))
     .filter(p => Number.isFinite(p.x) && p.x > 0 && Number.isFinite(p.y) && p.y >= 0);
+    // Dividend map window defaults (robust against outliers)
+    const divX = divAll.map(p=>p.x).filter(Number.isFinite);
+    const divY = divAll.map(p=>p.y).filter(Number.isFinite);
+    const defX = Number.isFinite(quantile(divX, 0.99)) ? Math.min(0.60, Math.max(0.05, quantile(divX, 0.99))) : 0.15;
+    const defY = Number.isFinite(quantile(divY, 0.99)) ? Math.min(8.00, Math.max(0.75, quantile(divY, 0.99))) : 2.0;
+    window.__divDefaults = {xMax: defX, yMax: defY};
+    if(!window.__divUserSet){
+      const xEl = document.getElementById("divXMax");
+      const yEl = document.getElementById("divYMax");
+      if(xEl) xEl.value = defX;
+      if(yEl) yEl.value = defY;
+      setText("divXMaxV", Math.round(defX*100) + "%");
+      setText("divYMaxV", Math.round(defY*100) + "%");
+    }
+    const divWin = getDivWindow(window.__divDefaults);
 
-    divAll.sort((a,b)=>b.m-a.m);
-    const ND = Math.min(900, divAll.length);
-    const divPts = divAll.slice(0, ND).map(p => ({
+    // Filter dividend points to window to prevent a single outlier from flattening the whole chart
+    const divAllWin = divAll
+      .filter(p => p.x >= 0 && p.x <= divWin.xMax && p.y >= 0 && p.y <= divWin.yMax);
+
+
+    divAllWin.sort((a,b)=>b.m-a.m);
+    const ND = Math.min(900, divAllWin.length);
+    const divPts = divAllWin.slice(0, ND).map(p => ({
       x: p.x, y: p.y,
       r: Math.max(2, Math.min(16, p.m / 5e10 * 16)),
       label: p.label,
@@ -967,10 +1157,10 @@ function rebuildCharts(rows){
           scales:{
             x:{ title:{display:true,text:"Dividend yield (latest, calc)"},
                 ticks:{ callback:(v)=> (Number(v)*100).toFixed(0)+"%" },
-                suggestedMin:0, suggestedMax:0.15 },
+                min:0, max: divWin.xMax },
             y:{ title:{display:true,text:"Payout ratio"},
                 ticks:{ callback:(v)=> (Number(v)*100).toFixed(0)+"%" },
-                suggestedMin:0, suggestedMax:2.0 }
+                min:0, max: divWin.yMax }
           }
         }
       });

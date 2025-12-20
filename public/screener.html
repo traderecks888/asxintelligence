@@ -221,6 +221,38 @@
     .drawerClose{ grid-column: 2; grid-row: 1; justify-self:end; }
   }
 
+
+.asxTip{
+  position: fixed;
+  z-index: 99999;
+  max-width: 380px;
+  background: rgba(15, 18, 25, 0.98);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+.asxTip strong{ display:block; font-size: 13px; margin-bottom: 6px; }
+.asxTip .muted{ opacity:0.85; }
+.asxTip code{
+  background: rgba(255,255,255,0.10);
+  padding: 1px 5px;
+  border-radius: 7px;
+}
+.btnSmall{
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btnSmall:hover{ background: rgba(255,255,255,0.12); }
+
 </style>
 </head>
 
@@ -372,7 +404,23 @@
 
       <div class="card">
         <strong>Dividend sustainability (Yield vs Payout)</strong>
-        <canvas id="divmap"></canvas>
+        
+<div class="sliderCard" style="margin:8px 0 10px 0;">
+  <div class="sliderRow">
+    <label>Yield max</label>
+    <input id="divXMax" type="range" min="0.02" max="0.60" step="0.005" value="0.15">
+    <div id="divXMaxV">15%</div>
+  </div>
+  <div class="sliderRow">
+    <label>Payout max</label>
+    <input id="divYMax" type="range" min="0.25" max="8.00" step="0.05" value="2.00">
+    <div id="divYMaxV">200%</div>
+  </div>
+  <div class="sliderRow" style="justify-content:flex-end;">
+    <button id="divReset" class="btnSmall" title="Reset the chart view">Reset view</button>
+  </div>
+</div>
+<canvas id="divmap"></canvas>
         <small>High yield + very high payout can be a yield trap. Look for decent yield with sane payout.</small>
       </div>
     </div>
@@ -442,5 +490,7 @@
   </script>
 
   <script src="/screener.js?v=0.79" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
+
+  <div id="macroTip" class="asxTip" style="display:none;"></div>
 </body>
 </html>

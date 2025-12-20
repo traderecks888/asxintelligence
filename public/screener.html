@@ -35,20 +35,26 @@
 .badge{border:1px solid #ddd;border-radius:999px;padding:4px 8px;font-size:12px;background:#f8f8f8}
 .bar{height:10px;background:#eee;border-radius:999px;overflow:hidden}
 .fill{height:100%;background:#111;border-radius:999px}
+
+/* ---- Collapsible charts ---- */
+#chartsDetails{ border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:10px 12px; background: rgba(255,255,255,0.02); }
+#chartsDetails > summary{ cursor:pointer; user-select:none; list-style:none; display:flex; align-items:center; gap:10px; }
+#chartsDetails > summary::-webkit-details-marker{ display:none; }
+#chartsDetails[open] > summary{ margin-bottom:6px; }
+
+/* Consistent, readable chart height */
+#chartsDetails .card canvas{ height: clamp(260px, 34vh, 420px) !important; width:100% !important; display:block; }
+@media (max-width: 900px){
+  #chartsDetails .grid2{ grid-template-columns: 1fr !important; }
+  #chartsDetails .card canvas{ height: clamp(240px, 32vh, 360px) !important; }
+}
+
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
 .macroGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:10px}
 .macroVal{font-size:18px;font-weight:800;margin-top:2px}
 .macroSub{font-size:12px;color:#666;margin-top:2px}
 @media (max-width: 900px){ .grid2{grid-template-columns:1fr} .macroGrid{grid-template-columns:repeat(3,1fr)} }
 
-
-
-  html, body{ max-width:100%; overflow-x:hidden; }
-  #mainGrid{ max-width:100%; width:100%; overflow:hidden; }
-  #tableArea{ max-width:100%; width:100%; overflow:auto; }
-  /* Let Tabulator be wider than the container so the container can scroll */
-  #tableArea .tabulator{ width:100% !important; min-width:100%; max-width:100%; }
-  #tableArea .tabulator-tableholder{ overflow-x:auto !important; }
 
     /* Tabulator readability tweaks */
     .tabulator { font-size: 12px; }
@@ -230,33 +236,42 @@
   }
 
 
-.mini{font-size:11px;opacity:0.9;white-space:nowrap;}
+.asxTip{
+  position: fixed;
+  z-index: 99999;
+  max-width: 420px;
+  background: rgba(15, 18, 25, 0.98);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+.asxTip strong{ display:block; font-size: 13px; margin-bottom: 6px; }
+.asxTip .muted{ opacity:0.85; }
+.asxTip code{
+  background: rgba(255,255,255,0.10);
+  padding: 1px 5px;
+  border-radius: 7px;
+}
+.btnSmall{
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btnSmall:hover{ background: rgba(255,255,255,0.12); }
 
-  /* ==== Responsive chart sizing (keeps all charts readable & consistent) ==== */
-  :root{
-    --chartH: clamp(260px, 34vh, 420px);
-  }
-  
-  /* Apply the same sizing even when charts are NOT wrapped in <details id="chartsDetails"> */
-  .charts .card{ display:flex; flex-direction:column; align-items:stretch; }
-  .charts .card canvas{ flex:1 1 auto; height: var(--chartH) !important; width:100% !important; display:block; }
-  /* Specific hard guarantee for the sector chart */
-  #hist{ height: var(--chartH) !important; width: 100% !important; }
 
-#chartsDetails .card{ display:flex; flex-direction:column; align-items:stretch; }
-  #chartsDetails canvas{
-    display:block;
-    width:100% !important;
-    height: var(--chartH) !important;
-    max-height: var(--chartH);
-  }
-  #chartsGrid, .grid2{ align-items:stretch; }
-  /* On small screens, stack charts and slightly reduce height */
-  @media (max-width: 900px){
-    :root{ --chartH: clamp(220px, 32vh, 360px); }
-    #chartsGrid{ grid-template-columns: 1fr !important; }
-    .grid2{ grid-template-columns: 1fr !important; }
-  }
+/* ---- Table containment ---- */
+html, body{ max-width:100%; overflow-x:hidden; }
+#tableArea{ overflow:auto; max-width:100%; }
+#tableArea .tabulator-tableholder{ overflow-x:auto !important; }
 
 </style>
 </head>
@@ -311,10 +326,57 @@
 
 
 
-  <details id="chartsDetails" open style="margin-top:12px;">
-    <summary style="cursor:pointer;"><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
-    <div class="grid" id="chartsGrid" style="margin-top:10px;">
-<div class="card">
+  <div class="card" style="margin-top:12px;">
+    <div class="topbar" style="margin:0;">
+      <select id="preset" title="Preset">
+        <option value="">Preset: (none)</option>
+        <option value="deep_value">Deep value (liquid)</option>
+        <option value="quality">Quality compounders</option>
+        <option value="mean_reversion">Mean reversion (oversold)</option>
+      </select>
+
+      <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
+      <select id="sector"></select>
+
+      <input id="minMcap" type="number" step="1000000" placeholder="Min market cap (AUD)">
+      <input id="minFcf" type="number" step="0.01" placeholder="Min FCF yield (e.g. 0.08)">
+      <input id="minU" type="number" step="1" placeholder="Min undervalued count">
+
+      <button id="apply">Apply</button>
+      <button id="reset" class="secondary">Reset</button>
+      <button id="dl" class="secondary">Download filtered CSV</button>
+      <details id="colControls" style="margin-left:8px;">
+        <summary style="cursor:pointer;"><strong>Columns</strong></summary>
+        <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;">
+          <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
+          <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
+          <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
+
+          <label><input type="checkbox" id="colShowValDisc"> Show valuation method discounts (prem/(disc))</label>
+          <label><input type="checkbox" id="colShowValPrices"> Show valuation method prices (intrinsic $)</label>
+
+        </div>
+        <small style="display:block;margin-top:8px;color:#666;">
+          Tip: keep “key” on for a clean table; turn on “all” or “valuation” when doing deep dives.
+        </small>
+      </details>
+
+    </div>
+
+    <details>
+      <summary><strong>Advanced filters</strong> <small>(useful for presets)</small></summary>
+      <div class="topbar" style="margin-top:10px;">
+        <input id="minROE" type="number" step="0.01" placeholder="Min ROE (e.g. 0.15)">
+        <input id="maxND" type="number" step="0.1" placeholder="Max NetDebt/EBITDA (e.g. 2.0)">
+        <input id="minDV" type="number" step="10000" placeholder="Min Avg $Vol 20d (e.g. 250000)">
+        <input id="maxVol" type="number" step="0.01" placeholder="Max Vol20 ann (e.g. 0.5)">
+        <input id="maxATR" type="number" step="0.005" placeholder="Max ATR% (e.g. 0.06)">
+        <input id="minScore" type="number" step="1" placeholder="Min Screener score (0-100)">
+      </div>
+    </details>
+
+    <div class="charts">
+      <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong>DCF discount vs FCF yield</strong>
           <small>(sliders adjust view)</small>
@@ -357,7 +419,11 @@
         <small>Shows which sectors are scoring best on the composite score (median across stocks with data).</small>
       </div>
     </div>
-    <div class="grid2">
+    
+  <details id="chartsDetails" open style="margin-top:12px;">
+    <summary><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
+    <div style="margin-top:12px;">
+<div class="grid2">
       <div class="card">
         <strong>Value vs Quality (quadrant map)</strong>
         <canvas id="vq"></canvas>
@@ -366,86 +432,33 @@
 
       <div class="card">
         <strong>Dividend sustainability (Yield vs Payout)</strong>
-        <canvas id="divmap"></canvas>
+        
+<div class="sliderCard" style="margin:8px 0 10px 0;">
+  <div class="sliderRow">
+    <label>Yield max</label>
+    <input id="divXMax" type="range" min="0.02" max="0.60" step="0.005" value="0.15">
+    <div id="divXMaxV">15%</div>
+  </div>
+  <div class="sliderRow">
+    <label>Payout max</label>
+    <input id="divYMax" type="range" min="0.25" max="8.00" step="0.05" value="2.00">
+    <div id="divYMaxV">200%</div>
+  </div>
+  <div class="sliderRow" style="justify-content:flex-end;">
+    <button id="divReset" class="btnSmall" title="Reset the chart view">Reset view</button>
+  </div>
+</div>
+<canvas id="divmap"></canvas>
         <small>High yield + very high payout can be a yield trap. Look for decent yield with sane payout.</small>
       </div>
     </div>
-  </details>
-
-    </div>
 
 
 
     
     
-
-  <!-- Filters & table presets -->
-<div class="card" style="margin-top:12px;">
-    <div class="topbar" style="margin:0;">
-      <select id="preset" title="Preset">
-        <option value="">Preset: (none)</option>
-        <option value="deep_value">Deep value (liquid)</option>
-        <option value="quality">Quality compounders</option>
-        <option value="mean_reversion">Mean reversion (oversold)</option>
-      </select>
-
-      <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
-      <select id="sector"></select>
-
-      <input id="minMcap" type="number" step="1000000" placeholder="Min market cap (AUD)">
-      <input id="minFcf" type="number" step="0.01" placeholder="Min FCF yield (e.g. 0.08)">
-      <input id="minU" type="number" step="1" placeholder="Min undervalued count">
-
-      <button id="apply">Apply</button>
-      <button id="reset" class="secondary">Reset</button>
-      <button id="dl" class="secondary">Download filtered CSV</button>
-      <details id="colControls" style="margin-left:8px;">
-  <summary style="cursor:pointer;"><strong>Table view</strong></summary>
-
-  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
-    <button id="tvCore" class="secondary">Core</button>
-    <button id="tvFA" class="secondary">Fundamentals</button>
-    <button id="tvTA" class="secondary">Technicals</button>
-    <button id="tvScore" class="secondary">Score parts</button>
-    <button id="tvVal$" class="secondary">Value ($/sh)</button>
-    <button id="tvValPct" class="secondary">Value (% disc)</button>
-    <button id="tvAll" class="secondary">All</button>
-  </div>
-
-  <small style="display:block;margin-top:8px;color:#666;">
-    These are column presets. Core stays clean; the Value presets show intrinsic methods side-by-side.
-  </small>
-
-  <details style="margin-top:10px;">
-    <summary style="cursor:pointer;"><strong>Advanced columns</strong> <small>(optional)</small></summary>
-    <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;">
-      <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
-      <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
-      <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
     </div>
-    <small style="display:block;margin-top:8px;color:#666;">
-      Tip: keep “key” on for a clean table; turn on “all” when doing deep dives.
-    </small>
   </details>
-</details>
-
-    </div>
-
-    <details>
-      <summary><strong>Advanced filters</strong> <small>(useful for presets)</small></summary>
-      <div class="topbar" style="margin-top:10px;">
-        <input id="minROE" type="number" step="0.01" placeholder="Min ROE (e.g. 0.15)">
-        <input id="maxND" type="number" step="0.1" placeholder="Max NetDebt/EBITDA (e.g. 2.0)">
-        <input id="minDV" type="number" step="10000" placeholder="Min Avg $Vol 20d (e.g. 250000)">
-        <input id="maxVol" type="number" step="0.01" placeholder="Max Vol20 ann (e.g. 0.5)">
-        <input id="maxATR" type="number" step="0.005" placeholder="Max ATR% (e.g. 0.06)">
-        <input id="minScore" type="number" step="1" placeholder="Min Screener score (0-100)">
-      </div>
-    </details>
-
-    <div class="charts">
-      
-  
 
 <div id="mainGrid">
       <div id="tableArea">
@@ -490,22 +503,11 @@
     window.__asxFatal = function(msg, err){
       show(`<strong>${esc(msg)}</strong><br><small>${esc(err ? (err.stack || err.message || err) : "")}</small>`);
     };
-    
-    function isBenignResizeObserverNoise(e){
-      try{
-        const msg = String((e && (e.message || e.reason || (e.error && (e.error.message||e.error)) || e)) || "");
-        return msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop limit exceeded");
-      }catch(_){ return false; }
-    }
     window.addEventListener("error", function(e){
-      if(isBenignResizeObserverNoise(e)) return;
       window.__asxFatal("Screener JavaScript error", e.error || e.message || e);
     });
     window.addEventListener("unhandledrejection", function(e){
-      if(isBenignResizeObserverNoise(e)) return;
       window.__asxFatal("Screener promise rejection", e.reason || e);
-    });
-
     });
     setTimeout(function(){
       if(!window.__ASX_UI_READY){
@@ -521,25 +523,21 @@
 
   <script src="/screener.js?v=0.79" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
 
+  <div id="macroTip" class="asxTip" style="display:none;"></div>
+
 <script>
-/* Ignore benign Chrome ResizeObserver loop warnings (Chart.js/Tabulator layout thrash can trigger these). */
 (function(){
-  const RO_MSG = "ResizeObserver loop completed with undelivered notifications";
-  window.addEventListener("error", function(ev){
+  function isBenignResizeObserverNoise(e){
     try{
-      if(ev && ev.message && String(ev.message).includes(RO_MSG)){
-        ev.preventDefault();
-      }
-    }catch(_){}
+      const msg = String((e && (e.message || e.reason || (e.error && (e.error.message||e.error)) || e)) || "");
+      return msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop limit exceeded");
+    }catch(_){ return false; }
+  }
+  window.addEventListener("error", function(e){
+    if(isBenignResizeObserverNoise(e)) { e.preventDefault && e.preventDefault(); return; }
   });
-  window.addEventListener("unhandledrejection", function(ev){
-    try{
-      const reason = ev && ev.reason;
-      const msg = reason && (reason.message || (reason.toString && reason.toString()));
-      if(msg && String(msg).includes(RO_MSG)){
-        ev.preventDefault();
-      }
-    }catch(_){}
+  window.addEventListener("unhandledrejection", function(e){
+    if(isBenignResizeObserverNoise(e)) { e.preventDefault && e.preventDefault(); return; }
   });
 })();
 </script>

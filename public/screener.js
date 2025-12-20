@@ -117,10 +117,18 @@ function pickBestWorst(parts){
 function openDrawer(){
   const drawer = document.getElementById("detailDrawer");
   if(drawer) drawer.classList.add("is-open");
+  try{
+    if(window.__asxTable) window.__asxTable.redraw(true);
+  }catch(_){}
+  try{ resizeAllChartsDebounced(); }catch(_){}
 }
 function closeDrawer(){
   const drawer = document.getElementById("detailDrawer");
   if(drawer) drawer.classList.remove("is-open");
+  try{
+    if(window.__asxTable) window.__asxTable.redraw(true);
+  }catch(_){}
+  try{ resizeAllChartsDebounced(); }catch(_){}
 }
 function wireDrawerClose(){
   const btn = document.getElementById("drawerClose");
@@ -714,7 +722,7 @@ function bootUI(rows){
   table = new Tabulator("#table", {
     data: rows,
     height: "650px",
-    layout: "fitData",
+    layout: "fitColumns",
     responsiveLayout: false,
     columnDefaults: {minWidth: 120, headerWordWrap: true},
     pagination: true,
@@ -847,7 +855,9 @@ const s = num(d["Screener Score"]);
     ],
   });
 
-  // Keep header/body aligned without resetting scroll position
+  
+  window.__asxTable = table;
+// Keep header/body aligned without resetting scroll position
   try{
     table.on("dataLoaded", ()=>setTimeout(safeRedraw, 0));
     table.on("columnVisibilityChanged", ()=>setTimeout(safeRedraw, 0));

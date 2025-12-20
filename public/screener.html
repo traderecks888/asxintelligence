@@ -162,7 +162,9 @@
 
   /* ==== Right-side detail drawer (replaces pushing content down) ==== */
   #mainGrid{ display:flex; gap:14px; align-items:flex-start; }
-  #tableArea{ flex:1 1 auto; min-width:0; }
+  #tableArea{ flex:1 1 auto; min-width:0; overflow:auto; max-width:100%; }
+  #tableArea .tabulator{ min-width:100%; width:max-content; }
+  #tableArea .tabulator-tableholder{ overflow-x:auto !important; }
   .drawer{
     flex: 0 0 380px;
     max-width: 420px;
@@ -224,7 +226,18 @@
 
 .mini{font-size:11px;opacity:0.9;white-space:nowrap;}
 
-  /* ==== Responsive chart sizing (keeps all charts readable & consistent) ==== */
+  
+  /* Chart boxes guarantee consistent canvas sizing across cards */
+  #chartsDetails .chartBox{
+    height: var(--chartH);
+    position: relative;
+  }
+  #chartsDetails .chartBox canvas{
+    height: 100% !important;
+    max-height: none !important;
+  }
+
+/* ==== Responsive chart sizing (keeps all charts readable & consistent) ==== */
   :root{
     --chartH: clamp(260px, 34vh, 420px);
   }
@@ -332,26 +345,26 @@
           </div>
         </div>
 
-        <canvas id="scatter"></canvas>
+        <div class="chartBox"><canvas id="scatter"></canvas></div>
         <small>Tip: hover near a bubble; tooltip uses “nearest” mode so you don’t need pixel-perfect clicks.</small>
       </div>
 
       <div class="card">
         <strong>Sector median screener score</strong>
-        <canvas id="hist"></canvas>
+        <div class="chartBox"><canvas id="hist"></canvas></div>
         <small>Shows which sectors are scoring best on the composite score (median across stocks with data).</small>
       </div>
     </div>
     <div class="grid2">
       <div class="card">
         <strong>Value vs Quality (quadrant map)</strong>
-        <canvas id="vq"></canvas>
+        <div class="chartBox"><canvas id="vq"></canvas></div>
         <small>Each bubble is a stock (limited to top names by market cap for speed). Aim for high value + high quality.</small>
       </div>
 
       <div class="card">
         <strong>Dividend sustainability (Yield vs Payout)</strong>
-        <canvas id="divmap"></canvas>
+        <div class="chartBox"><canvas id="divmap"></canvas></div>
         <small>High yield + very high payout can be a yield trap. Look for decent yield with sane payout.</small>
       </div>
     </div>
@@ -475,11 +488,22 @@
     window.__asxFatal = function(msg, err){
       show(`<strong>${esc(msg)}</strong><br><small>${esc(err ? (err.stack || err.message || err) : "")}</small>`);
     };
+    
+    function isBenignResizeObserverNoise(e){
+      try{
+        const msg = String((e && (e.message || e.reason || e.error && (e.error.message||e.error) || e)) || "");
+        return msg.includes("ResizeObserver loop") || msg.includes("ResizeObserver loop limit exceeded");
+      }catch(_){ return false; }
+    }
     window.addEventListener("error", function(e){
+      if(isBenignResizeObserverNoise(e)) return; // ignore Chrome ResizeObserver noise
       window.__asxFatal("Screener JavaScript error", e.error || e.message || e);
     });
     window.addEventListener("unhandledrejection", function(e){
+      if(isBenignResizeObserverNoise(e)) return;
       window.__asxFatal("Screener promise rejection", e.reason || e);
+    });
+
     });
     setTimeout(function(){
       if(!window.__ASX_UI_READY){

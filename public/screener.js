@@ -10,6 +10,33 @@ function pctMaybeSmart(x){
 }
 
 window.__ASX_UI_READY = window.__ASX_UI_READY || false;
+
+
+function relocateFiltersPanel(){
+  // Moves the preset/filter panel + advanced filters to just above the screener table (before #mainGrid).
+  // This prevents layout regressions when the HTML template changes.
+  const mainGrid = document.getElementById("mainGrid");
+  const preset = document.getElementById("preset");
+  if(!mainGrid || !preset) return;
+
+  // Filter card is the nearest ".card" ancestor of the preset select
+  const card = preset.closest ? preset.closest(".card") : null;
+  if(!card) return;
+
+  const advanced = document.getElementById("advanced");
+  const parent = mainGrid.parentElement;
+  if(!parent) return;
+
+  // If already positioned right above mainGrid, do nothing.
+  const prev = mainGrid.previousElementSibling;
+  if(prev === card || prev === advanced) return;
+
+  const frag = document.createDocumentFragment();
+  frag.appendChild(card);
+  if(advanced && !card.contains(advanced)) frag.appendChild(advanced);
+
+  parent.insertBefore(frag, mainGrid);
+}
 function median(arr){
   const a = arr.filter(x => Number.isFinite(x)).sort((x,y)=>x-y);
   if(!a.length) return NaN;
@@ -727,6 +754,7 @@ function wireSliders(){
 async function load(){
   try{
     hideErr();
+    relocateFiltersPanel();
 
     let m = null;
     try { m = await fetchJson("/data/manifest.json"); } catch(e) {}

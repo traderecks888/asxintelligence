@@ -1229,9 +1229,24 @@ const s = num(d["Screener Score"]);
 
   // Click a row to see full score breakdown without cluttering the table.
 
-  let lastClickedKey = null;
+  
+
+function safeRowElement(row){
+  // Tabulator RowComponent element accessor across versions
+  try{
+    if(row){
+      if(typeof row.getElement === "function") return row.getElement();
+      if(row.getElement && row.getElement.nodeType===1) return row.getElement;
+      // internal fallbacks (best-effort)
+      if(row._row && row._row.element) return row._row.element;
+    }
+  }catch(_){}
+  return null;
+}
+let lastClickedKey = null;
 
   table.on("rowClick", function(e, row){
+  try{
     const d = row.getData() || {};
     const key = String(d["Ticker"] || row.getIndex() || "");
 
@@ -1260,7 +1275,7 @@ const s = num(d["Screener Score"]);
     if(window.__asxActiveRowEl){
       window.__asxActiveRowEl.classList.remove("asx-row-active");
     }
-    const el = row.getElement();
+    const el = safeRowElement(row);
     if(el) el.classList.add("asx-row-active");
     window.__asxActiveKey = key || null;
     window.__asxActiveRowEl = el || null;
@@ -1269,7 +1284,17 @@ const s = num(d["Screener Score"]);
     if(hint) hint.textContent = key ? `Selected: ${key}` : "Selected stock";
     try{ renderScoreDetails(d); }catch(err){ console.error(err); }
 
-  });
+  
+  }catch(err){
+    console.error(err);
+    // Do not kill the whole app on a row click error; just show a hint in the drawer.
+    try{
+      const hint = document.getElementById("scoreDetailsHint");
+      if(hint) hint.textContent = "Could not render this row's details (see console).";
+    }catch(_){}
+  }
+
+});
 
 
 

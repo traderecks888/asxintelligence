@@ -49,6 +49,49 @@ function barRow(label, value, max){
     </div>`;
 }
 
+// Valuation cell coloring (subtle, readable)
+const VAL_BG_UP   = "rgba(34, 197, 94, 0.16)";   // soft green
+const VAL_BG_DOWN = "rgba(239, 68, 68, 0.14)";   // soft red
+
+function clearValBg(cell){
+  const el = cell && cell.getElement ? cell.getElement() : null;
+  if(!el) return;
+  el.style.backgroundColor = "";
+}
+
+function setValBg(cell, upDown){ // upDown: true = green, false = red, null = clear
+  const el = cell && cell.getElement ? cell.getElement() : null;
+  if(!el) return;
+  if(upDown === true) el.style.backgroundColor = VAL_BG_UP;
+  else if(upDown === false) el.style.backgroundColor = VAL_BG_DOWN;
+  else el.style.backgroundColor = "";
+}
+
+function fmtValPrice(cell){
+  const v = num(cell.getValue());
+  const row = cell.getRow ? cell.getRow() : null;
+  const data = row && row.getData ? row.getData() : null;
+  const px = data ? num(data["Price"]) : NaN;
+
+  if(Number.isFinite(v) && Number.isFinite(px) && px > 0){
+    setValBg(cell, v > px ? true : (v < px ? false : null));
+  }else{
+    clearValBg(cell);
+  }
+  return fmt2(v);
+}
+
+function fmtValDisc(cell){
+  const v = num(cell.getValue()); // e.g. 0.12 == +12%
+  if(Number.isFinite(v)){
+    setValBg(cell, v > 0 ? true : (v < 0 ? false : null));
+  }else{
+    clearValBg(cell);
+  }
+  return pct(v);
+}
+
+
 function pctSmart(x){
   // Handles both fraction (0.08) and percent (8.0) inputs safely.
   const n = Number(x);
@@ -1030,27 +1073,27 @@ const s = num(d["Screener Score"]);
       {title:"Price", field:"Price", formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Mkt Cap", field:"Market Cap", formatter:(c)=>fmtInt(num(c.getValue()))},
 
-      {title:"DCF Disc", field:"DCF Premium/(Discount)", formatter:(c)=>pct(num(c.getValue()))},
+      {title:"DCF Disc", field:"DCF Premium/(Discount)", formatter:(c)=>fmtValDisc(c)},
       {title:"FCF Yield", field:"FCF Yield", formatter:(c)=>pct(num(c.getValue()))},
       {title:"Undervalued Count", field:"Undervalued Methods Count", width:160, headerTooltip:"Count of methods where (Intrinsic - Price)/Price > 0. Counted: DCF, Residual Income, Asset Based, SOTP, Dividend Discount. Enable valuation columns for each method.", formatter:(c)=>{const v=num(c.getValue()); return Number.isFinite(v)?String(Math.round(v)):"";}},
 
-      {title:"DCF $", field:"DCF Price (5yr)", headerTooltip:"DCF intrinsic price estimate (5yr model).", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"DCF $", field:"DCF Price (5yr)", headerTooltip:"DCF intrinsic price estimate (5yr model).", formatter:(c)=>fmtValPrice(c), visible:false},
 
-      {title:"RI Disc", field:"Residual Income Premium/(Discount)", headerTooltip:"Residual Income premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Asset Disc", field:"Asset Based Premium/(Discount)", headerTooltip:"Asset-based premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"SOTP Disc", field:"SOTP Premium/(Discount)", headerTooltip:"Sum-of-the-parts premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"DDM Disc", field:"Dividend Discount Premium/(Discount)", headerTooltip:"Dividend Discount premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"EPV Disc", field:"EPV Premium/(Discount)", headerTooltip:"Earnings Power Value premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
-      {title:"Opt Disc", field:"Option Pricing Premium/(Discount)", headerTooltip:"Option-pricing premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
+      {title:"RI Disc", field:"Residual Income Premium/(Discount)", headerTooltip:"Residual Income premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>fmtValDisc(c), visible:false},
+      {title:"Asset Disc", field:"Asset Based Premium/(Discount)", headerTooltip:"Asset-based premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>fmtValDisc(c), visible:false},
+      {title:"SOTP Disc", field:"SOTP Premium/(Discount)", headerTooltip:"Sum-of-the-parts premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>fmtValDisc(c), visible:false},
+      {title:"DDM Disc", field:"Dividend Discount Premium/(Discount)", headerTooltip:"Dividend Discount premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>fmtValDisc(c), visible:false},
+      {title:"EPV Disc", field:"EPV Premium/(Discount)", headerTooltip:"Earnings Power Value premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>fmtValDisc(c), visible:false},
+      {title:"Opt Disc", field:"Option Pricing Premium/(Discount)", headerTooltip:"Option-pricing premium/(discount): (Intrinsic - Price)/Price.", formatter:(c)=>fmtValDisc(c), visible:false},
 
-      {title:"RI $", field:"Residual Income Price", headerTooltip:"Residual Income intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Asset $", field:"Asset Based Price", headerTooltip:"Asset-based intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"SOTP $", field:"SOTP Price", headerTooltip:"Sum-of-the-parts intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"DDM $", field:"Dividend Discount Price", headerTooltip:"Dividend Discount Model intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"EPV $", field:"Earnings Power Value (EPV) Price", headerTooltip:"EPV intrinsic price estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
-      {title:"Opt $", field:"Option Pricing Value", headerTooltip:"Option-pricing intrinsic value estimate.", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"RI $", field:"Residual Income Price", headerTooltip:"Residual Income intrinsic price estimate.", formatter:(c)=>fmtValPrice(c), visible:false},
+      {title:"Asset $", field:"Asset Based Price", headerTooltip:"Asset-based intrinsic price estimate.", formatter:(c)=>fmtValPrice(c), visible:false},
+      {title:"SOTP $", field:"SOTP Price", headerTooltip:"Sum-of-the-parts intrinsic price estimate.", formatter:(c)=>fmtValPrice(c), visible:false},
+      {title:"DDM $", field:"Dividend Discount Price", headerTooltip:"Dividend Discount Model intrinsic price estimate.", formatter:(c)=>fmtValPrice(c), visible:false},
+      {title:"EPV $", field:"Earnings Power Value (EPV) Price", headerTooltip:"EPV intrinsic price estimate.", formatter:(c)=>fmtValPrice(c), visible:false},
+      {title:"Opt $", field:"Option Pricing Value", headerTooltip:"Option-pricing intrinsic value estimate.", formatter:(c)=>fmtValPrice(c), visible:false},
 
-      {title:"MOS Buy $", field:"MOS Buy Price", headerTooltip:"Margin-of-safety buy price = DCF price × (1 - MOS).", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
+      {title:"MOS Buy $", field:"MOS Buy Price", headerTooltip:"Margin-of-safety buy price = DCF price × (1 - MOS).", formatter:(c)=>fmtValPrice(c), visible:false},
       {title:"MOS", field:"Margin of Safety", headerTooltip:"Configured margin-of-safety % used to compute MOS Buy Price.", formatter:(c)=>pct(num(c.getValue())), visible:false},
 
       {title:"Book Value", field:"Book Value (Total, Assets-Liab)", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},

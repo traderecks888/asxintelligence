@@ -517,9 +517,68 @@ function wireColumnControls(){
 
 
 
+
+function ensureTableViewStyles(){
+  if(document.getElementById("asx-tableview-style")) return;
+  const css = `
+    /* Table view segmented control */
+    .seg{display:inline-flex;align-items:center;border:1px solid rgba(0,0,0,.10);border-radius:12px;overflow:hidden;box-shadow:0 1px 0 rgba(0,0,0,.02);vertical-align:middle;}
+    .seg button{appearance:none;border:0;background:#fff;padding:6px 10px;font-size:12px;line-height:18px;color:#444;cursor:pointer;white-space:nowrap;}
+    .seg button:hover{background:rgba(0,0,0,.04);}
+    .seg button.active{background:rgba(17, 94, 89, .10);color:#0f4f4a;font-weight:600;}
+    .seg button + button{border-left:1px solid rgba(0,0,0,.08);}
+    /* Responsive: show dropdown on narrow screens, segmented on wide screens */
+    @media (max-width: 900px){ #tableViewSeg{display:none !important;} }
+    @media (min-width: 901px){ #tableView{display:none !important;} }
+  `;
+  const st = document.createElement("style");
+  st.id = "asx-tableview-style";
+  st.textContent = css;
+  document.head.appendChild(st);
+}
+
 function wireTableView(){
   const sel = document.getElementById("tableView");
   if(!sel || !table) return;
+
+  ensureTableViewStyles();
+
+  // Create segmented control next to the dropdown (desktop), keep the <select> for mobile/accessibility.
+  let seg = document.getElementById("tableViewSeg");
+  if(!seg){
+    seg = document.createElement("div");
+    seg.id = "tableViewSeg";
+    seg.className = "seg";
+    const label = sel.closest("label") || sel.parentElement;
+    if(label) label.appendChild(seg);
+  }
+
+  const views = [
+    ["basic", "Basic"],
+    ["fundamentals", "Fundamentals"],
+    ["technicals", "Technicals"],
+    ["valuation_prices", "Valuation $"],
+    ["valuation_discounts", "Valuation %"],
+    ["dividends", "Dividends"],
+    ["ownership", "Ownership"],
+    ["all", "All"],
+  ];
+
+  // (Re)build buttons
+  if(seg && !seg.dataset.built){
+    seg.dataset.built = "1";
+    for(const [val, txt] of views){
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = txt;
+      b.dataset.view = val;
+      b.addEventListener("click", ()=>{
+        sel.value = val;
+        sel.dispatchEvent(new Event("change"));
+      });
+      seg.appendChild(b);
+    }
+  }
 
   const coreFields = [
     "Ticker","Company","Sector",
@@ -561,12 +620,29 @@ function wireTableView(){
     "Held % Insiders","Held % Institutions","Avg $Vol 20d"
   ]);
 
+  function setColumnVisible(col, on){
+    try{
+      if(typeof col.setVisible === "function"){ col.setVisible(!!on); return; }
+    }catch(_){}
+    try{
+      if(!!on && typeof col.show === "function"){ col.show(); return; }
+      if(!on && typeof col.hide === "function"){ col.hide(); return; }
+    }catch(_){}
+    // Last resort: table-level show/hide by field
+    try{
+      const f = col.getField && col.getField();
+      if(!f) return;
+      if(!!on && typeof table.showColumn === "function"){ table.showColumn(f); return; }
+      if(!on && typeof table.hideColumn === "function"){ table.hideColumn(f); return; }
+    }catch(_){}
+  }
+
   function setView(fields){
     const set = new Set(fields);
     table.getColumns().forEach(col=>{
       const f = col.getField && col.getField();
       if(!f) return;
-      col.setVisible(set.has(f));
+      setColumnVisible(col, set.has(f));
     });
     safeRedraw();
   }
@@ -580,18 +656,28 @@ function wireTableView(){
     else if(v==="dividends") setView(dividends);
     else if(v==="ownership") setView(ownership);
     else if(v==="all"){
-      table.getColumns().forEach(c=>{ try{ c.show(); }catch(_){ } });
+      table.getColumns().forEach(c=>setColumnVisible(c,true));
       safeRedraw();
     }
 
-    // Apply optional column control checkboxes on top of the selected view
+    // Optional checkbox-driven extras on top
     try{ if(window.__asxColRefresh) window.__asxColRefresh(); }catch(_){}
     safeRedraw();
+
+    // Update segmented active state
+    if(seg){
+      Array.from(seg.querySelectorAll("button")).forEach(b=>{
+        b.classList.toggle("active", b.dataset.view === v);
+      });
+    }
   }
 
   sel.addEventListener("change", ()=>applyView(sel.value));
+
+  // Initialize
   applyView(sel.value || "basic");
 }
+
 
 function safeRedraw(){
   try{

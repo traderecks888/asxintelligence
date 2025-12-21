@@ -578,7 +578,165 @@ def _atr(df: pd.DataFrame, period: int = 14) -> float:
     return float(atr.iloc[-1])
 
 
-def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] = None) -> Dict[str, Any]:
+
+
+# --------------------------------------------------------------------------------------
+# Extra technical helpers (trend + SR levels)
+# --------------------------------------------------------------------------------------
+
+def _ema(series: pd.Series, span: int) -> pd.Series:
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[float, float, float]:
+    if close is None or close.dropna().empty:
+        return (np.nan, np.nan, np.nan)
+    ema_fast = _ema(close, fast)
+    ema_slow = _ema(close, slow)
+    macd = ema_fast - ema_slow
+    sig = _ema(macd, signal)
+    hist = macd - sig
+    return (float(macd.iloc[-1]), float(sig.iloc[-1]), float(hist.iloc[-1]))
+
+
+def _adx(df: pd.DataFrame, n: int = 14) -> float:
+    """Average Directional Index (ADX). Higher ~ stronger trend (regardless of direction)."""
+    if df is None or df.empty:
+        return np.nan
+    for c in ("High","Low","Close"):
+        if c not in df.columns:
+            return np.nan
+    high = df["High"].astype(float)
+    low = df["Low"].astype(float)
+    close = df["Close"].astype(float)
+
+    up_move = high.diff()
+    down_move = -low.diff()
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    tr = pd.concat([
+        (high - low),
+        (high - close.shift(1)).abs(),
+        (low - close.shift(1)).abs()
+    ], axis=1).max(axis=1)
+
+    if tr.dropna().empty:
+        return np.nan
+
+    atr = tr.ewm(alpha=1/n, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1/n, adjust=False).mean() / atr
+    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1/n, adjust=False).mean() / atr
+
+    dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di)).replace([np.inf, -np.inf], np.nan)
+    adx = dx.ewm(alpha=1/n, adjust=False).mean()
+    return float(adx.iloc[-1]) if not adx.dropna().empty else np.nan
+
+
+def _stoch(df: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> Tuple[float, float]:
+    if df is None or df.empty:
+        return (np.nan, np.nan)
+    for c in ("High","Low","Close"):
+        if c not in df.columns:
+            return (np.nan, np.nan)
+    high = df["High"].astype(float)
+    low = df["Low"].astype(float)
+    close = df["Close"].astype(float)
+
+    lo = low.rolling(k_period).min()
+    hi = high.rolling(k_period).max()
+    denom = (hi - lo).replace(0, np.nan)
+    k = 100 * (close - lo) / denom
+    d = k.rolling(d_period).mean()
+    return (float(k.iloc[-1]) if not k.dropna().empty else np.nan,
+            float(d.iloc[-1]) if not d.dropna().empty else np.nan)
+
+
+def _bollinger(close: pd.Series, n: int = 20, k: float = 2.0) -> Tuple[float, float]:
+    """Returns (%B, bandwidth)."""
+    if close is None or close.dropna().empty:
+        return (np.nan, np.nan)
+    mid = close.rolling(n).mean()
+    sd = close.rolling(n).std(ddof=0)
+    upper = mid + k * sd
+    lower = mid - k * sd
+    width = (upper - lower) / mid
+    pb = (close - lower) / (upper - lower)
+    pb = pb.replace([np.inf, -np.inf], np.nan)
+    width = width.replace([np.inf, -np.inf], np.nan)
+    return (float(pb.iloc[-1]) if not pb.dropna().empty else np.nan,
+            float(width.iloc[-1]) if not width.dropna().empty else np.nan)
+
+
+def _pivot_levels(df: pd.DataFrame, win: int = 3) -> List[float]:
+    """Simple pivot-based levels from local highs/lows."""
+    if df is None or df.empty:
+        return []
+    if "High" not in df.columns or "Low" not in df.columns:
+        return []
+    high = df["High"].astype(float)
+    low = df["Low"].astype(float)
+    w = 2 * win + 1
+    ph = high[(high == high.rolling(w, center=True).max())]
+    pl = low[(low == low.rolling(w, center=True).min())]
+    levels = pd.concat([ph, pl]).dropna().astype(float).tolist()
+    return levels
+
+
+def _cluster_levels(levels: List[float], merge_pct: float = 0.005) -> List[float]:
+    """Merge nearby levels (within merge_pct) to reduce duplicates."""
+    lv = [float(x) for x in levels if x is not None and np.isfinite(x)]
+    if not lv:
+        return []
+    lv.sort()
+    clusters: List[List[float]] = [[lv[0]]]
+    for x in lv[1:]:
+        m = float(sum(clusters[-1]) / len(clusters[-1]))
+        if m > 0 and abs(x - m) / m <= merge_pct:
+            clusters[-1].append(x)
+        else:
+            clusters.append([x])
+    return [float(sum(c)/len(c)) for c in clusters]
+
+
+def _nearest_sr(df: pd.DataFrame, px: float, win: int = 3, merge_pct: float = 0.005) -> Dict[str, Any]:
+    """Nearest two support + resistance levels, plus % distances and R:R."""
+    out: Dict[str, Any] = {
+        "S1": np.nan, "S2": np.nan, "R1": np.nan, "R2": np.nan,
+        "S1 %": np.nan, "S2 %": np.nan, "R1 %": np.nan, "R2 %": np.nan,
+        "R:R": np.nan,
+    }
+    if not (np.isfinite(px) and px > 0) or df is None or df.empty:
+        return out
+
+    levels = _cluster_levels(_pivot_levels(df, win=win), merge_pct=merge_pct)
+    if not levels:
+        return out
+
+    supports = [x for x in levels if x < px]
+    resist = [x for x in levels if x > px]
+    supports.sort(reverse=True)
+    resist.sort()
+
+    def _pct_support(s): return float((px - s) / px) if np.isfinite(s) and px > 0 else np.nan
+    def _pct_res(r): return float((r - px) / px) if np.isfinite(r) and px > 0 else np.nan
+
+    if supports:
+        out["S1"] = float(supports[0]); out["S1 %"] = _pct_support(supports[0])
+    if len(supports) > 1:
+        out["S2"] = float(supports[1]); out["S2 %"] = _pct_support(supports[1])
+
+    if resist:
+        out["R1"] = float(resist[0]); out["R1 %"] = _pct_res(resist[0])
+    if len(resist) > 1:
+        out["R2"] = float(resist[1]); out["R2 %"] = _pct_res(resist[1])
+
+    if np.isfinite(out["R1 %"]) and np.isfinite(out["S1 %"]) and out["S1 %"] > 0:
+        out["R:R"] = float(out["R1 %"] / out["S1 %"])
+    return out
+
+def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] = None, weekly_hist: Optional[pd.DataFrame] = None, monthly_hist: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "Return 1m": np.nan,
         "Return 3m": np.nan,
@@ -590,6 +748,28 @@ def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] =
         "% from SMA20": np.nan,
         "% from SMA50": np.nan,
         "% from SMA200": np.nan,
+        "% Dist SMA200D": np.nan,
+        "SMA200W": np.nan,
+        "% Dist SMA200W": np.nan,
+        "MACD (12,26)": np.nan,
+        "MACD Signal (9)": np.nan,
+        "MACD Hist (12,26,9)": np.nan,
+        "ADX14": np.nan,
+        "Stoch %K (14)": np.nan,
+        "Stoch %D (3)": np.nan,
+        "BB %B (20,2)": np.nan,
+        "BB Width (20,2)": np.nan,
+        # Support/Resistance + R:R
+        "Support D1": np.nan, "Support D2": np.nan, "Resistance D1": np.nan, "Resistance D2": np.nan,
+        "Support D1 %": np.nan, "Support D2 %": np.nan, "Resistance D1 %": np.nan, "Resistance D2 %": np.nan,
+        "R:R (D)": np.nan,
+        "Support W1": np.nan, "Support W2": np.nan, "Resistance W1": np.nan, "Resistance W2": np.nan,
+        "Support W1 %": np.nan, "Support W2 %": np.nan, "Resistance W1 %": np.nan, "Resistance W2 %": np.nan,
+        "R:R (W)": np.nan,
+        "Support M1": np.nan, "Support M2": np.nan, "Resistance M1": np.nan, "Resistance M2": np.nan,
+        "Support M1 %": np.nan, "Support M2 %": np.nan, "Resistance M1 %": np.nan, "Resistance M2 %": np.nan,
+        "R:R (M)": np.nan,
+
         "52W High": np.nan,
         "52W Low": np.nan,
         "% From 52W High": np.nan,
@@ -634,6 +814,21 @@ def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] =
     out["% from SMA50"] = float(px / out["SMA50"] - 1.0) if np.isfinite(out["SMA50"]) and out["SMA50"] > 0 else np.nan
     out["% from SMA200"] = float(px / out["SMA200"] - 1.0) if np.isfinite(out["SMA200"]) and out["SMA200"] > 0 else np.nan
 
+    # Alias requested naming (200-day distance)
+    out["% Dist SMA200D"] = out["% from SMA200"]
+
+    # 200-week SMA + distance (weekly)
+    try:
+        if weekly_hist is not None and not weekly_hist.empty and "Close" in weekly_hist.columns:
+            wclose = weekly_hist["Close"].astype(float).dropna()
+            if len(wclose) >= 200:
+                sma200w = float(wclose.rolling(200).mean().iloc[-1])
+                out["SMA200W"] = sma200w
+                out["% Dist SMA200W"] = float(px / sma200w - 1.0) if np.isfinite(sma200w) and sma200w > 0 else np.nan
+    except Exception:
+        pass
+
+
     # 52-week high/low (use High/Low if available else Close)
     if "High" in df.columns and "Low" in df.columns:
         out["52W High"] = float(df["High"].astype(float).max())
@@ -647,6 +842,35 @@ def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] =
 
     # RSI, ATR
     out["RSI14"] = _rsi(close, 14)
+
+    # Extra pro-grade trend/oscillator indicators (lightweight, interpretable)
+    try:
+        macd, macd_sig, macd_hist = _macd(close, 12, 26, 9)
+        out["MACD (12,26)"] = macd
+        out["MACD Signal (9)"] = macd_sig
+        out["MACD Hist (12,26,9)"] = macd_hist
+    except Exception:
+        pass
+
+    try:
+        out["ADX14"] = _adx(df, 14)
+    except Exception:
+        pass
+
+    try:
+        k, d = _stoch(df, 14, 3)
+        out["Stoch %K (14)"] = k
+        out["Stoch %D (3)"] = d
+    except Exception:
+        pass
+
+    try:
+        pb, bw = _bollinger(close, 20, 2.0)
+        out["BB %B (20,2)"] = pb
+        out["BB Width (20,2)"] = bw
+    except Exception:
+        pass
+
     atr14 = _atr(df, 14)
     out["ATR (14)"] = atr14
     out["ATR% (14)"] = float(atr14 / px) if np.isfinite(atr14) and px > 0 else np.nan
@@ -679,6 +903,43 @@ def compute_technicals(hist: pd.DataFrame, benchmark_rets: Optional[pd.Series] =
             cov = joined.cov(ddof=0).loc["stock", "bench"]
             out["Beta vs Benchmark (1y)"] = float(cov / joined["bench"].var(ddof=0))
 
+
+
+    # Support/Resistance + R:R (daily/weekly/monthly)
+    try:
+        d_df = df.tail(252).copy()
+        sr_d = _nearest_sr(d_df, px, win=3, merge_pct=0.006)
+        out["Support D1"] = sr_d["S1"]; out["Support D2"] = sr_d["S2"]
+        out["Resistance D1"] = sr_d["R1"]; out["Resistance D2"] = sr_d["R2"]
+        out["Support D1 %"] = sr_d["S1 %"]; out["Support D2 %"] = sr_d["S2 %"]
+        out["Resistance D1 %"] = sr_d["R1 %"]; out["Resistance D2 %"] = sr_d["R2 %"]
+        out["R:R (D)"] = sr_d["R:R"]
+    except Exception:
+        pass
+
+    try:
+        if weekly_hist is not None and not weekly_hist.empty:
+            w_df = weekly_hist.tail(260).copy()
+            sr_w = _nearest_sr(w_df, px, win=2, merge_pct=0.010)
+            out["Support W1"] = sr_w["S1"]; out["Support W2"] = sr_w["S2"]
+            out["Resistance W1"] = sr_w["R1"]; out["Resistance W2"] = sr_w["R2"]
+            out["Support W1 %"] = sr_w["S1 %"]; out["Support W2 %"] = sr_w["S2 %"]
+            out["Resistance W1 %"] = sr_w["R1 %"]; out["Resistance W2 %"] = sr_w["R2 %"]
+            out["R:R (W)"] = sr_w["R:R"]
+    except Exception:
+        pass
+
+    try:
+        if monthly_hist is not None and not monthly_hist.empty:
+            m_df = monthly_hist.tail(180).copy()
+            sr_m = _nearest_sr(m_df, px, win=2, merge_pct=0.015)
+            out["Support M1"] = sr_m["S1"]; out["Support M2"] = sr_m["S2"]
+            out["Resistance M1"] = sr_m["R1"]; out["Resistance M2"] = sr_m["R2"]
+            out["Support M1 %"] = sr_m["S1 %"]; out["Support M2 %"] = sr_m["S2 %"]
+            out["Resistance M1 %"] = sr_m["R1 %"]; out["Resistance M2 %"] = sr_m["R2 %"]
+            out["R:R (M)"] = sr_m["R:R"]
+    except Exception:
+        pass
     return out
 
 
@@ -872,13 +1133,16 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
     extras = compute_extra_metrics(info, bs, float(base["sharesOutstanding"]) if not np.isnan(base["sharesOutstanding"]) else np.nan)
     base.update(extras)
 
-    # Technicals (1y daily)
+    # Technicals (daily + weekly/monthly for longer-horizon signals)
     tech: Dict[str, Any] = {}
     if not disable_technicals:
         hist = fetch_history(sym, history_period, history_interval)
-        tech = compute_technicals(hist, benchmark_rets=benchmark_rets)
+        # Weekly/monthly are small row-count and unlock 200-week SMA + multi-timeframe SR
+        hist_w = fetch_history(sym, "5y", "1wk")
+        hist_m = fetch_history(sym, "10y", "1mo")
+        tech = compute_technicals(hist, benchmark_rets=benchmark_rets, weekly_hist=hist_w, monthly_hist=hist_m)
     else:
-        tech = compute_technicals(pd.DataFrame(), benchmark_rets=None)
+        tech = compute_technicals(pd.DataFrame(), benchmark_rets=None, weekly_hist=None, monthly_hist=None)
 
 
     # ----------------------------------------------------------------------------------
@@ -1218,13 +1482,45 @@ def main() -> None:
         "Ticker","Company","Sector","Industry",
         "Price","Market Cap",
         "DCF Price (5yr)","DCF Premium/(Discount)","FCF Yield","Undervalued Methods Count",
-        "Residual Income Price","Residual Income Premium/(Discount)",
-        "Asset Based Price","Asset Based Premium/(Discount)",
-        "SOTP Price","SOTP Premium/(Discount)",
-        "Dividend Discount Price","Dividend Discount Premium/(Discount)",
-        "Earnings Power Value (EPV) Price","EPV Premium/(Discount)",
-        "Option Pricing Value","Option Pricing Premium/(Discount)",
         "RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)",
+        "% Dist SMA200D",
+        "SMA200W",
+        "% Dist SMA200W",
+        "MACD (12,26)",
+        "MACD Signal (9)",
+        "MACD Hist (12,26,9)",
+        "ADX14",
+        "Stoch %K (14)",
+        "Stoch %D (3)",
+        "BB %B (20,2)",
+        "BB Width (20,2)",
+        "Support D1",
+        "Support D2",
+        "Resistance D1",
+        "Resistance D2",
+        "Support D1 %",
+        "Support D2 %",
+        "Resistance D1 %",
+        "Resistance D2 %",
+        "R:R (D)",
+        "Support W1",
+        "Support W2",
+        "Resistance W1",
+        "Resistance W2",
+        "Support W1 %",
+        "Support W2 %",
+        "Resistance W1 %",
+        "Resistance W2 %",
+        "R:R (W)",
+        "Support M1",
+        "Support M2",
+        "Resistance M1",
+        "Resistance M2",
+        "Support M1 %",
+        "Support M2 %",
+        "Resistance M1 %",
+        "Resistance M2 %",
+        "R:R (M)",
         "Return 1m","Return 3m","Return 12m",
         "% From 52W High","% From 52W Low",
         "Avg $Vol 20d","Avg Vol 20d",

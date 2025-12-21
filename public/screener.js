@@ -675,6 +675,13 @@ function wireTableView(){
     "RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)"
   ]);
 
+
+  const taLevels = core.concat([
+    "Support D1","Support D1 %","Support D2","Support D2 %","Resistance D1","Resistance D1 %","Resistance D2","Resistance D2 %","R:R (D)",
+    "Support W1","Support W1 %","Support W2","Support W2 %","Resistance W1","Resistance W1 %","Resistance W2","Resistance W2 %","R:R (W)",
+    "Support M1","Support M1 %","Support M2","Support M2 %","Resistance M1","Resistance M1 %","Resistance M2","Resistance M2 %","R:R (M)"
+  ]);
+
   const valPrices = coreFields.concat([
     "DCF Price (5yr)","Residual Income Price","Asset Based Price","SOTP Price",
     "Dividend Discount Price","Earnings Power Value (EPV) Price","Option Pricing Value",
@@ -729,6 +736,7 @@ function wireTableView(){
     if(v==="basic") setView(coreFields);
     else if(v==="fundamentals") setView(fundamentals);
     else if(v==="technicals") setView(technicals);
+    else if(v==="ta_levels") setView(taLevels);
     else if(v==="valuation_prices") setView(valPrices);
     else if(v==="valuation_discounts") setView(valDiscs);
     else if(v==="dividends") setView(dividends);
@@ -1149,10 +1157,50 @@ const s = num(d["Screener Score"]);
 
       {title:"BV/Share (Yahoo)", field:"Book Value / Share (Yahoo)", formatter:(c)=>fmt2(num(c.getValue())), visible:false},
 
-      {title:"RSI14", field:"RSI14", formatter:(c)=>fmt2(num(c.getValue()))},
-      {title:"ATR%", field:"ATR% (14)", formatter:(c)=>pct(num(c.getValue()))},
-      {title:"Vol20", field:"Vol (20d, ann)", formatter:(c)=>pct(num(c.getValue()))},
-      {title:"MDD", field:"Max Drawdown (1y)", formatter:(c)=>pct(num(c.getValue()))},
+      {title:"RSI14", field:"RSI14", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Relative Strength Index (14). 0-100 momentum oscillator; ~>70 strong/extended, ~<30 weak/oversold (context matters)."},
+      {title:"%Dist 200D", field:"% Dist SMA200D", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"% distance of current price vs 200-day SMA. Positive = above SMA (trend tailwind). Negative = below SMA (trend headwind).", visible:false},
+      {title:"%Dist 200W", field:"% Dist SMA200W", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"% distance of current price vs 200-week SMA. Long-horizon trend filter.", visible:false},
+      {title:"SMA200W", field:"SMA200W", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"200-week simple moving average (weekly closes).", visible:false},
+      {title:"MACD Hist", field:"MACD Hist (12,26,9)", formatter:(c)=>fmt4(num(c.getValue())), headerTooltip:"MACD histogram = MACD line minus signal line. Positive and rising often implies strengthening momentum.", visible:false},
+      {title:"ADX14", field:"ADX14", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"ADX (14) measures trend strength (not direction). ~<20 weak/range, ~>25 trending.", visible:false},
+      {title:"Stoch %K", field:"Stoch %K (14)", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Stochastic %K (14). Roughly: >80 overbought, <20 oversold (context matters).", visible:false},
+      {title:"Stoch %D", field:"Stoch %D (3)", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Stochastic %D (3) is a smoothed signal line for %K.", visible:false},
+      {title:"BB %B", field:"BB %B (20,2)", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Bollinger %B position inside bands (0=lower band, 1=upper band).", visible:false},
+      {title:"BB Width", field:"BB Width (20,2)", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Bollinger bandwidth (upper-lower)/mid. Higher = more volatility; lower = compression.", visible:false},
+      // Multi-timeframe Support/Resistance + R:R
+      {title:"D Sup1", field:"Support D1", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Nearest DAILY support (pivot-based).", visible:false},
+      {title:"D Sup1%", field:"Support D1 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance down to DAILY support 1 as % of current price.", visible:false},
+      {title:"D Sup2", field:"Support D2", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Second-nearest DAILY support (pivot-based).", visible:false},
+      {title:"D Sup2%", field:"Support D2 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance down to DAILY support 2 as % of current price.", visible:false},
+      {title:"D Res1", field:"Resistance D1", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Nearest DAILY resistance (pivot-based).", visible:false},
+      {title:"D Res1%", field:"Resistance D1 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance up to DAILY resistance 1 as % of current price.", visible:false},
+      {title:"D Res2", field:"Resistance D2", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Second-nearest DAILY resistance (pivot-based).", visible:false},
+      {title:"D Res2%", field:"Resistance D2 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance up to DAILY resistance 2 as % of current price.", visible:false},
+      {title:"D R:R", field:"R:R (D)", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Daily Reward:Risk = (% to nearest resistance) / (% to nearest support). Higher can mean better asymmetry (but watch quality of levels).", visible:false},
+
+      {title:"W Sup1", field:"Support W1", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Nearest WEEKLY support (pivot-based).", visible:false},
+      {title:"W Sup1%", field:"Support W1 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance down to WEEKLY support 1 as % of current price.", visible:false},
+      {title:"W Sup2", field:"Support W2", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Second-nearest WEEKLY support (pivot-based).", visible:false},
+      {title:"W Sup2%", field:"Support W2 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance down to WEEKLY support 2 as % of current price.", visible:false},
+      {title:"W Res1", field:"Resistance W1", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Nearest WEEKLY resistance (pivot-based).", visible:false},
+      {title:"W Res1%", field:"Resistance W1 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance up to WEEKLY resistance 1 as % of current price.", visible:false},
+      {title:"W Res2", field:"Resistance W2", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Second-nearest WEEKLY resistance (pivot-based).", visible:false},
+      {title:"W Res2%", field:"Resistance W2 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance up to WEEKLY resistance 2 as % of current price.", visible:false},
+      {title:"W R:R", field:"R:R (W)", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Weekly Reward:Risk using nearest weekly resistance/support.", visible:false},
+
+      {title:"M Sup1", field:"Support M1", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Nearest MONTHLY support (pivot-based).", visible:false},
+      {title:"M Sup1%", field:"Support M1 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance down to MONTHLY support 1 as % of current price.", visible:false},
+      {title:"M Sup2", field:"Support M2", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Second-nearest MONTHLY support (pivot-based).", visible:false},
+      {title:"M Sup2%", field:"Support M2 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance down to MONTHLY support 2 as % of current price.", visible:false},
+      {title:"M Res1", field:"Resistance M1", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Nearest MONTHLY resistance (pivot-based).", visible:false},
+      {title:"M Res1%", field:"Resistance M1 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance up to MONTHLY resistance 1 as % of current price.", visible:false},
+      {title:"M Res2", field:"Resistance M2", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Second-nearest MONTHLY resistance (pivot-based).", visible:false},
+      {title:"M Res2%", field:"Resistance M2 %", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Distance up to MONTHLY resistance 2 as % of current price.", visible:false},
+      {title:"M R:R", field:"R:R (M)", formatter:(c)=>fmt2(num(c.getValue())), headerTooltip:"Monthly Reward:Risk using nearest monthly resistance/support.", visible:false},
+
+      {title:"ATR%", field:"ATR% (14)", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Average True Range % (14). A rough volatility gauge: higher = more daily range."},
+      {title:"Vol20", field:"Vol (20d, ann)", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Annualised volatility from last 20 trading days (std of returns)."},
+      {title:"MDD", field:"Max Drawdown (1y)", formatter:(c)=>pct(num(c.getValue())), headerTooltip:"Maximum peak-to-trough drawdown over the last ~1 year. Lower (more negative) = nastier downswings."},
 
       {title:"Avg $Vol 20d", field:"Avg $Vol 20d", formatter:(c)=>fmtInt(num(c.getValue())), visible:false},
       {title:"NetDebt/EBITDA", field:"Net Debt/EBITDA", formatter:(c)=>fmt2(num(c.getValue())), visible:false},

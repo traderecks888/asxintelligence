@@ -129,7 +129,7 @@ function strengthRank(r){
 
 // Custom sorter so FA/TA strengths sort logically.
 // Supports both sort directions via the "dir" argument.
-function strengthSorter(_a, _b, aRow, bRow, column, dir){
+function strengthSorter(_a, _b, aRow, bRow, column){
   const field = column && column.getField ? column.getField() : "";
   const ad = aRow && aRow.getData ? aRow.getData() : null;
   const bd = bRow && bRow.getData ? bRow.getData() : null;
@@ -137,9 +137,7 @@ function strengthSorter(_a, _b, aRow, bRow, column, dir){
   const ar = field==="__TA_Strength" ? taStrength(ad||{}) : faStrength(ad||{});
   const br = field==="__TA_Strength" ? taStrength(bd||{}) : faStrength(bd||{});
 
-  let diff = strengthRank(ar) - strengthRank(br);
-  if((dir||"").toLowerCase()==="desc") diff = -diff;
-  return diff;
+  return strengthRank(ar) - strengthRank(br);
 }
 
 function faStrength(data){

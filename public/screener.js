@@ -115,6 +115,33 @@ function rating5FromScore(x){
   return {k:"vw", label:"Very Weak"};
 }
 
+
+function strengthRank(r){
+  // Order: blank, very weak, weak, average, strong, very strong.
+  if(!r) return 0;
+  if(r.k==="vw") return 1;
+  if(r.k==="w")  return 2;
+  if(r.k==="a")  return 3;
+  if(r.k==="s")  return 4;
+  if(r.k==="vs") return 5;
+  return 0;
+}
+
+// Custom sorter so FA/TA strengths sort logically.
+// Supports both sort directions via the "dir" argument.
+function strengthSorter(_a, _b, aRow, bRow, column, dir){
+  const field = column && column.getField ? column.getField() : "";
+  const ad = aRow && aRow.getData ? aRow.getData() : null;
+  const bd = bRow && bRow.getData ? bRow.getData() : null;
+
+  const ar = field==="__TA_Strength" ? taStrength(ad||{}) : faStrength(ad||{});
+  const br = field==="__TA_Strength" ? taStrength(bd||{}) : faStrength(bd||{});
+
+  let diff = strengthRank(ar) - strengthRank(br);
+  if((dir||"").toLowerCase()==="desc") diff = -diff;
+  return diff;
+}
+
 function faStrength(data){
   const V = num(data["Value Score"]);
   const Q = num(data["Quality Score"]);
@@ -151,7 +178,17 @@ function taStrength(data){
 
 function pillHTML(r){
   if(!r) return '<span style="color:#888;">—</span>';
-  return `<span class="pill ${r.k}"><span class="pillDot"></span>${r.label}</span>`;
+
+  // Subtle strength coloring (only these cells get background color)
+  let bg = "";
+  if(r.k==="vw") bg = "rgba(239, 68, 68, 0.18)";      // very weak (red)
+  else if(r.k==="w") bg = "rgba(239, 68, 68, 0.10)";  // weak (lighter red)
+  else if(r.k==="s") bg = "rgba(34, 197, 94, 0.12)";  // strong (green)
+  else if(r.k==="vs") bg = "rgba(34, 197, 94, 0.18)"; // very strong (stronger green)
+  // average stays uncolored/neutral
+
+  const style = bg ? ` style="background:${bg};"` : "";
+  return `<span class="pill ${r.k}"${style}><span class="pillDot"></span>${r.label}</span>`;
 }
 
 function pickBestWorst(parts){
@@ -1062,8 +1099,8 @@ const s = num(d["Screener Score"]);
       {title:"Ticker", field:"Ticker",  width:90, headerFilter:true},
       {title:"Company", field:"Company",  minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
-      {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong). Derived from Value/Quality/Risk base score (45/30/25). Falls back to Screener Score if components missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), download:false},
-      {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong). Heuristic from RSI14 (momentum), Max Drawdown (1y) (stability), and ATR% (noise).", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), download:false},
+      {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong). Derived from Value/Quality/Risk base score (45/30/25). Falls back to Screener Score if components missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
+      {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong). Heuristic from RSI14 (momentum), Max Drawdown (1y) (stability), and ATR% (noise).", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
 
       {title:"Score", field:"Screener Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},

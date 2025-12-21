@@ -27,10 +27,6 @@
     #err{display:none;margin-top:10px;padding:10px;border:1px solid #f1c40f;border-radius:12px;background:#fff7e6}
     #err code{background:#fff3cd;padding:2px 6px;border-radius:8px}
     details{margin-top:10px}
-    #chartsDetails > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
-    #chartsDetails > summary::-webkit-details-marker{display:none}
-    #chartsDetails[open] > summary{margin-bottom:10px}
-
     .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
     .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
     input[type="range"]{width:100%}
@@ -310,58 +306,7 @@
 
 
 
-  <div class="card" style="margin-top:12px;">
-    <div class="topbar" style="margin:0;">
-      <select id="preset" title="Preset">
-        <option value="">Preset: (none)</option>
-        <option value="deep_value">Deep value (liquid)</option>
-        <option value="quality">Quality compounders</option>
-        <option value="mean_reversion">Mean reversion (oversold)</option>
-      </select>
-
-      <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
-      <select id="sector"></select>
-
-      <input id="minMcap" type="number" step="1000000" placeholder="Min market cap (AUD)">
-      <input id="minFcf" type="number" step="0.01" placeholder="Min FCF yield (e.g. 0.08)">
-      <input id="minU" type="number" step="1" placeholder="Min undervalued count">
-
-      <button id="apply">Apply</button>
-      <button id="reset" class="secondary">Reset</button>
-      <button id="dl" class="secondary">Download filtered CSV</button>
-      <details id="colControls" style="margin-left:8px;">
-        <summary style="cursor:pointer;"><strong>Columns</strong></summary>
-        <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;">
-          <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
-          <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
-          <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
-
-          <label><input type="checkbox" id="colShowValDisc"> Show valuation method discounts (prem/(disc))</label>
-          <label><input type="checkbox" id="colShowValPrices"> Show valuation method prices (intrinsic $)</label>
-
-        </div>
-        <small style="display:block;margin-top:8px;color:#666;">
-          Tip: keep “key” on for a clean table; turn on “all” or “valuation” when doing deep dives.
-        </small>
-      </details>
-
-    </div>
-
-    <details>
-      <summary><strong>Advanced filters</strong> <small>(useful for presets)</small></summary>
-      <div class="topbar" style="margin-top:10px;">
-        <input id="minROE" type="number" step="0.01" placeholder="Min ROE (e.g. 0.15)">
-        <input id="maxND" type="number" step="0.1" placeholder="Max NetDebt/EBITDA (e.g. 2.0)">
-        <input id="minDV" type="number" step="10000" placeholder="Min Avg $Vol 20d (e.g. 250000)">
-        <input id="maxVol" type="number" step="0.01" placeholder="Max Vol20 ann (e.g. 0.5)">
-        <input id="maxATR" type="number" step="0.005" placeholder="Max ATR% (e.g. 0.06)">
-        <input id="minScore" type="number" step="1" placeholder="Min Screener score (0-100)">
-      </div>
-    </details>
-
-    <details id="chartsDetails" open>
-      <summary><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
-<div class="charts">
+  <div class="charts">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong>DCF discount vs FCF yield</strong>
@@ -438,8 +383,56 @@
 
 
     
-    
+    <div class="card" style="margin-top:12px;">
+    <div class="topbar" style="margin:0;">
+      <select id="preset" title="Preset">
+        <option value="">Preset: (none)</option>
+        <option value="deep_value">Deep value (liquid)</option>
+        <option value="quality">Quality compounders</option>
+        <option value="mean_reversion">Mean reversion (oversold)</option>
+      </select>
+
+      <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
+      <select id="sector"></select>
+
+      <input id="minMcap" type="number" step="1000000" placeholder="Min market cap (AUD)">
+      <input id="minFcf" type="number" step="0.01" placeholder="Min FCF yield (e.g. 0.08)">
+      <input id="minU" type="number" step="1" placeholder="Min undervalued count">
+
+      <button id="apply">Apply</button>
+      <button id="reset" class="secondary">Reset</button>
+      <button id="dl" class="secondary">Download filtered CSV</button>
+      <details id="colControls" style="margin-left:8px;">
+        <summary style="cursor:pointer;"><strong>Columns</strong></summary>
+        <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;">
+          <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
+          <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
+          <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
+
+          <label><input type="checkbox" id="colShowValDisc"> Show valuation method discounts (prem/(disc))</label>
+          <label><input type="checkbox" id="colShowValPrices"> Show valuation method prices (intrinsic $)</label>
+
+        </div>
+        <small style="display:block;margin-top:8px;color:#666;">
+          Tip: keep “key” on for a clean table; turn on “all” or “valuation” when doing deep dives.
+        </small>
+      </details>
+
+    </div>
+
+    <details>
+      <summary><strong>Advanced filters</strong> <small>(useful for presets)</small></summary>
+      <div class="topbar" style="margin-top:10px;">
+        <input id="minROE" type="number" step="0.01" placeholder="Min ROE (e.g. 0.15)">
+        <input id="maxND" type="number" step="0.1" placeholder="Max NetDebt/EBITDA (e.g. 2.0)">
+        <input id="minDV" type="number" step="10000" placeholder="Min Avg $Vol 20d (e.g. 250000)">
+        <input id="maxVol" type="number" step="0.01" placeholder="Max Vol20 ann (e.g. 0.5)">
+        <input id="maxATR" type="number" step="0.005" placeholder="Max ATR% (e.g. 0.06)">
+        <input id="minScore" type="number" step="1" placeholder="Min Screener score (0-100)">
+      </div>
     </details>
+
+    
 
 <div id="mainGrid">
       <div id="tableArea">

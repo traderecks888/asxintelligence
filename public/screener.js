@@ -660,8 +660,23 @@ function wireTableView(){
       safeRedraw();
     }
 
-    // Optional checkbox-driven extras on top
-    try{ if(window.__asxColRefresh) window.__asxColRefresh(); }catch(_){}
+
+    // Column toggles (checkboxes) are designed to augment the Basic view.
+    // For other views, we keep the view authoritative to avoid columns being hidden again by refresh().
+    const toggleIds = ["colShowIncome","colShowAllDiv","colShowAllHold","colShowValDisc","colShowValPrices"];
+    const enableToggles = (on)=>{
+      toggleIds.forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.disabled = !on;
+      });
+    };
+
+    if(v==="basic"){
+      enableToggles(true);
+      try{ if(window.__asxColRefresh) window.__asxColRefresh(); }catch(_){}
+    }else{
+      enableToggles(false);
+    }
     safeRedraw();
 
     // Update segmented active state

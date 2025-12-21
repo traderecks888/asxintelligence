@@ -61,6 +61,56 @@ function pctSmart(x){
   return (v*100).toFixed(1) + "%";
 }
 
+
+function rating5FromScore(x){
+  const v = num(x);
+  if(!Number.isFinite(v)) return null;
+  if(v >= 80) return {k:"vs", label:"Very Strong"};
+  if(v >= 60) return {k:"s",  label:"Strong"};
+  if(v >= 40) return {k:"a",  label:"Average"};
+  if(v >= 20) return {k:"w",  label:"Weak"};
+  return {k:"vw", label:"Very Weak"};
+}
+
+function faStrength(data){
+  const V = num(data["Value Score"]);
+  const Q = num(data["Quality Score"]);
+  const R = num(data["Risk Score"]);
+  let base = NaN;
+  if(Number.isFinite(V) && Number.isFinite(Q) && Number.isFinite(R)){
+    base = 0.45*V + 0.30*Q + 0.25*R;
+  }else{
+    base = num(data["Screener Score"]);
+  }
+  return rating5FromScore(base);
+}
+
+function taStrength(data){
+  const rsi = num(data["RSI14"]);
+  const mdd = num(data["Max Drawdown (1y)"]);
+  const atr = num(data["ATR% (14)"]);
+  if(!Number.isFinite(rsi)) return null;
+
+  let score = 50 + (rsi - 50) * 1.6;
+  if(Number.isFinite(mdd)){
+    if(mdd > -0.20) score += 12;
+    else if(mdd > -0.35) score += 5;
+    else if(mdd < -0.60) score -= 10;
+    else if(mdd < -0.45) score -= 5;
+  }
+  if(Number.isFinite(atr)){
+    if(atr > 0.12) score -= 10;
+    else if(atr > 0.08) score -= 5;
+  }
+  score = Math.max(0, Math.min(100, score));
+  return rating5FromScore(score);
+}
+
+function pillHTML(r){
+  if(!r) return '<span style="color:#888;">—</span>';
+  return `<span class="pill ${r.k}"><span class="pillDot"></span>${r.label}</span>`;
+}
+
 function pickBestWorst(parts){
   const finite = parts.filter(p => Number.isFinite(p.score));
   if(!finite.length) return {best:null, worst:null};
@@ -330,6 +380,7 @@ function wireDividendAxisControls(){
     if(Number.isFinite(x)) setText("divXMaxV", Math.round(x*100) + "%");
     if(Number.isFinite(y)) setText("divYMaxV", Math.round(y*100) + "%");
   };
+  window.__asxColRefresh = refresh;
 
   const apply = ()=>{
     setLabels();
@@ -453,9 +504,6 @@ function wireColumnControls(){
     }
   };
 
-  // Default states (if elements exist)
-  if(key && key.checked === false) key.checked = true;
-
   if(key) key.addEventListener("change", refresh);
   if(allDiv) allDiv.addEventListener("change", refresh);
   if(allHold) allHold.addEventListener("change", refresh);
@@ -467,6 +515,83 @@ function wireColumnControls(){
 
 
 
+
+
+function wireTableView(){
+  const sel = document.getElementById("tableView");
+  if(!sel || !table) return;
+
+  const coreFields = [
+    "Ticker","Company","Sector",
+    "__FA_Strength","__TA_Strength",
+    "Screener Score","Price","Market Cap"
+  ];
+
+  const fundamentals = coreFields.concat([
+    "DCF Premium/(Discount)","FCF Yield","Undervalued Methods Count",
+    "Value Score","Quality Score","Risk Score",
+    "Book Value / Share (Assets-Liab)","Net Debt/EBITDA","Avg $Vol 20d",
+    "Held % Insiders","Held % Institutions",
+  ]);
+
+  const technicals = coreFields.concat([
+    "RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)"
+  ]);
+
+  const valPrices = coreFields.concat([
+    "DCF Price (5yr)","Residual Income Price","Asset Based Price","SOTP Price",
+    "Dividend Discount Price","Earnings Power Value (EPV) Price","Option Pricing Value",
+    "MOS Buy Price","Margin of Safety"
+  ]);
+
+  const valDiscs = coreFields.concat([
+    "DCF Premium/(Discount)",
+    "Residual Income Premium/(Discount)","Asset Based Premium/(Discount)","SOTP Premium/(Discount)",
+    "Dividend Discount Premium/(Discount)","EPV Premium/(Discount)","Option Pricing Premium/(Discount)",
+    "Margin of Safety"
+  ]);
+
+  const dividends = coreFields.concat([
+    "Dividend Rate (Yahoo)","Dividend Yield (Yahoo)","Dividend Yield (Latest, Calc)","Dividend Yield Δ% (Yahoo→Calc)",
+    "Payout Ratio (Yahoo)","5Y Avg Dividend Yield (Yahoo)","Ex-Dividend Date (Yahoo)",
+    "Last Dividend Value (Yahoo)","Last Dividend Date (Yahoo)",
+  ]);
+
+  const ownership = coreFields.concat([
+    "Held % Insiders","Held % Institutions","Avg $Vol 20d"
+  ]);
+
+  function setView(fields){
+    const set = new Set(fields);
+    table.getColumns().forEach(col=>{
+      const f = col.getField && col.getField();
+      if(!f) return;
+      col.setVisible(set.has(f));
+    });
+    safeRedraw();
+  }
+
+  function applyView(v){
+    if(v==="basic") setView(coreFields);
+    else if(v==="fundamentals") setView(fundamentals);
+    else if(v==="technicals") setView(technicals);
+    else if(v==="valuation_prices") setView(valPrices);
+    else if(v==="valuation_discounts") setView(valDiscs);
+    else if(v==="dividends") setView(dividends);
+    else if(v==="ownership") setView(ownership);
+    else if(v==="all"){
+      table.getColumns().forEach(c=>{ try{ c.show(); }catch(_){ } });
+      safeRedraw();
+    }
+
+    // Apply optional column control checkboxes on top of the selected view
+    try{ if(window.__asxColRefresh) window.__asxColRefresh(); }catch(_){}
+    safeRedraw();
+  }
+
+  sel.addEventListener("change", ()=>applyView(sel.value));
+  applyView(sel.value || "basic");
+}
 
 function safeRedraw(){
   try{
@@ -788,6 +913,8 @@ const s = num(d["Screener Score"]);
       {title:"Ticker", field:"Ticker",  width:90, headerFilter:true},
       {title:"Company", field:"Company",  minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
+      {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong). Derived from Value/Quality/Risk base score (45/30/25). Falls back to Screener Score if components missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), download:false},
+      {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong). Heuristic from RSI14 (momentum), Max Drawdown (1y) (stability), and ATR% (noise).", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), download:false},
 
       {title:"Score", field:"Screener Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
@@ -865,6 +992,7 @@ const s = num(d["Screener Score"]);
   rebuildCharts(rows);
 
   wireColumnControls();
+  wireTableView();
   
 
   // Click a row to see full score breakdown without cluttering the table.
@@ -1194,28 +1322,6 @@ function rebuildCharts(rows){
       });
     }
   }catch(e){ console.warn("Dividend chart error", e); }
-
-  // Charts collapse/expand: resize charts & table when toggled
-  try{
-    const det = document.getElementById("chartsDetails");
-    if(det && !det.__asxBound){
-      det.__asxBound = true;
-      det.addEventListener("toggle", ()=>{
-        setTimeout(()=>{
-          try{
-            if(det.open){
-              if(scatterChart) scatterChart.resize();
-              if(histChart) histChart.resize();
-              if(vqChart) vqChart.resize();
-              if(divChart) divChart.resize();
-            }
-          }catch(_){}
-          try{ if(table) table.redraw(true); }catch(_){}
-        }, 80);
-      });
-    }
-  }catch(_){}
-
 
 }
 

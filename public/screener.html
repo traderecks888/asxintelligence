@@ -27,6 +27,10 @@
     #err{display:none;margin-top:10px;padding:10px;border:1px solid #f1c40f;border-radius:12px;background:#fff7e6}
     #err code{background:#fff3cd;padding:2px 6px;border-radius:8px}
     details{margin-top:10px}
+    #chartsDetails > summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+    #chartsDetails > summary::-webkit-details-marker{display:none}
+    #chartsDetails[open] > summary{margin-bottom:10px}
+
     .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
     .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
     input[type="range"]{width:100%}
@@ -325,23 +329,10 @@
       <button id="apply">Apply</button>
       <button id="reset" class="secondary">Reset</button>
       <button id="dl" class="secondary">Download filtered CSV</button>
-      <label style="display:inline-flex;align-items:center;gap:6px;margin-left:10px;">
-        <span style="font-size:12px;color:#666;">Table view</span>
-        <select id="tableView" title="Table view" style="min-width:180px;">
-          <option value="basic" selected>Basic (default)</option>
-          <option value="fundamentals">Fundamentals</option>
-          <option value="technicals">Technicals</option>
-          <option value="valuation_prices">Valuation ($/share)</option>
-          <option value="valuation_discounts">Valuation (% disc)</option>
-          <option value="dividends">Dividends</option>
-          <option value="ownership">Ownership</option>
-          <option value="all">All columns</option>
-        </select>
-      </label>
       <details id="colControls" style="margin-left:8px;">
         <summary style="cursor:pointer;"><strong>Columns</strong></summary>
         <div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px;">
-          <label><input type="checkbox" id="colShowIncome"> Show key income/ownership columns</label>
+          <label><input type="checkbox" id="colShowIncome" checked> Show key income/ownership columns</label>
           <label><input type="checkbox" id="colShowAllDiv"> Show all dividend columns</label>
           <label><input type="checkbox" id="colShowAllHold"> Show all holdings columns</label>
 
@@ -368,7 +359,9 @@
       </div>
     </details>
 
-    <div class="charts">
+    <details id="chartsDetails" open>
+      <summary><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
+<div class="charts">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <strong>DCF discount vs FCF yield</strong>
@@ -445,7 +438,10 @@
 
 
     
-    <div id="mainGrid">
+    
+    </details>
+
+<div id="mainGrid">
       <div id="tableArea">
         <div id="table"></div>
         <small style="display:block;margin-top:6px;">Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>

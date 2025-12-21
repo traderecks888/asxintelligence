@@ -300,67 +300,6 @@ function setText(id, txt){
   const el = document.getElementById(id);
   if(el) el.textContent = txt;
 }
-
-function findAdvancedFiltersDetails(){
-  // Prefer explicit id if present, otherwise find the details whose summary includes "Advanced filters".
-  const byId = document.getElementById("advanced");
-  if(byId) return byId;
-
-  const all = Array.from(document.querySelectorAll("details"));
-  for(const d of all){
-    const s = d.querySelector("summary");
-    const txt = (s && s.textContent) ? s.textContent.toLowerCase() : "";
-    if(txt.includes("advanced filters")) return d;
-  }
-  return null;
-}
-
-function relocateFiltersPanel(){
-  // Goal: filter controls should live just above the screener table (i.e., right before #mainGrid),
-  // so users can tweak filters while viewing results.
-  //
-  // This is done at runtime to avoid regressions when screener.html changes.
-  const mainGrid = document.getElementById("mainGrid");
-  const preset = document.getElementById("preset");
-  if(!mainGrid || !preset) return;
-
-  const parent = mainGrid.parentElement;
-  if(!parent) return;
-
-  const filterBar = preset.closest ? preset.closest(".topbar") : null;
-  const adv = findAdvancedFiltersDetails();
-
-  // If already in the right spot, do nothing.
-  if(filterBar && filterBar.parentElement === parent && filterBar.nextElementSibling === (adv || mainGrid)){
-    // If advanced exists, ensure it's after filterBar.
-    if(adv && adv.parentElement === parent && adv.previousElementSibling !== filterBar){
-      try{ parent.insertBefore(adv, mainGrid); }catch(_){}
-    }
-    return;
-  }
-
-  // Safe insert that avoids HierarchyRequestError and no-op moves.
-  const safeInsertBeforeMainGrid = (node)=>{
-    if(!node) return;
-    if(node === mainGrid) return;
-    // Avoid illegal operations: you can't insert an ancestor of 'parent' into 'parent'
-    if(node.contains && node.contains(parent)) return;
-    // If already directly before mainGrid, nothing to do
-    if(node.parentElement === parent && node.nextElementSibling === mainGrid) return;
-    try{
-      parent.insertBefore(node, mainGrid);
-    }catch(_){}
-  };
-
-  // Order matters: move filterBar first, then advanced details so advanced ends up AFTER the bar.
-  if(filterBar && !(filterBar.contains && filterBar.contains(mainGrid))){
-    safeInsertBeforeMainGrid(filterBar);
-  }
-  if(adv && !(filterBar && filterBar.contains && filterBar.contains(adv))){
-    safeInsertBeforeMainGrid(adv);
-  }
-}
-
 function normFrac(v){
   const n = Number(v);
   if(!Number.isFinite(n)) return NaN;
@@ -788,7 +727,6 @@ function wireSliders(){
 async function load(){
   try{
     hideErr();
-    relocateFiltersPanel();
 
     let m = null;
     try { m = await fetchJson("/data/manifest.json"); } catch(e) {}

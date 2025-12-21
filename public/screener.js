@@ -380,8 +380,6 @@ function wireDividendAxisControls(){
     if(Number.isFinite(x)) setText("divXMaxV", Math.round(x*100) + "%");
     if(Number.isFinite(y)) setText("divYMaxV", Math.round(y*100) + "%");
   };
-  window.__asxColRefresh = refresh;
-
   const apply = ()=>{
     setLabels();
     window.__divUserSet = true;
@@ -503,6 +501,8 @@ function wireColumnControls(){
       showFields(valPriceFields, true);
     }
   };
+  window.__asxColRefresh = refresh;
+
 
   if(key) key.addEventListener("change", refresh);
   if(allDiv) allDiv.addEventListener("change", refresh);

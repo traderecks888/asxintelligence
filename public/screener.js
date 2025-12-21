@@ -742,7 +742,7 @@ async function load(){
     raw = rows;
     filteredNow = rows;
 
-    bootUI(raw);
+    try{ bootUI(raw); }catch(e){ throw e; }
     window.__ASX_UI_READY = true;
     setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
   }catch(err){
@@ -829,14 +829,19 @@ function updateMacroTiles(rows){
 }
 
 function bootUI(rows){
+  // Defensive UI guards: don't hard-crash if optional UI blocks are missing.
+  if(!document.querySelector("#table")){
+    throw new Error("UI template mismatch: missing #table element in screener.html");
+  }
+
   const sectors = Array.from(new Set(rows.map(r => r["Sector"]).filter(Boolean))).sort();
   const sel = document.getElementById("sector");
   if(sel) sel.innerHTML = `<option value="">All sectors</option>` + sectors.map(s=>`<option>${s}</option>`).join("");
 
-  document.getElementById("kpiRows").textContent = rows.length.toLocaleString();
-  document.getElementById("kpiDCF").textContent = pct(median(rows.map(r => num(r["DCF Premium/(Discount)"]))));
-  document.getElementById("kpiFCF").textContent = pct(median(rows.map(r => num(r["FCF Yield"]))));
-  document.getElementById("kpiScore").textContent = fmt2(median(rows.map(r => num(r["Screener Score"]))));
+  setText("kpiRows", rows.length.toLocaleString());
+  setText("kpiDCF", pct(median(rows.map(r => num(r["DCF Premium/(Discount)"]))))); 
+  setText("kpiFCF", pct(median(rows.map(r => num(r["FCF Yield"])))));
+  setText("kpiScore", fmt2(median(rows.map(r => num(r["Screener Score"])))));
   updateMacroTiles(rows);
 
   table = new Tabulator("#table", {

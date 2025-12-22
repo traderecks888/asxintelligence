@@ -951,6 +951,7 @@ function wireTableView(){
     "Ticker","Company","Sector",
     "__FA_Strength","__TA_Strength",
     "__Total_Score","Price","Market Cap",
+    "Book Value / Share (Assets-Liab)",
     "R:R (D)","R:R (W)","R:R (M)"
   ];
 

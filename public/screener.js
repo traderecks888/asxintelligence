@@ -29,6 +29,17 @@ function quantile(arr, q){
   return a[base];
 }
 function pct(x){ return Number.isFinite(x) ? (x*100).toFixed(1) + "%" : "–"; }
+
+
+function normPct(x){
+  // Accept either 0.12 (12%) or 12 (12%). Returns decimal.
+  let v = num(x);
+  if(!Number.isFinite(v)) return NaN;
+  if(Math.abs(v) > 1.5) v = v / 100;
+  return v;
+}
+
+function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
 function fmt2(x){ return Number.isFinite(x) ? x.toFixed(2) : "–"; }
 function fmt4(x){ return Number.isFinite(x) ? x.toFixed(4) : "–"; }
 function fmtInt(x){ return Number.isFinite(x) ? Math.round(x).toLocaleString() : "–"; }
@@ -153,26 +164,114 @@ function faStrength(data){
   return rating5FromScore(base);
 }
 
-function taStrength(data){
-  const rsi = num(data["RSI14"]);
-  const mdd = num(data["Max Drawdown (1y)"]);
-  const atr = num(data["ATR% (14)"]);
-  if(!Number.isFinite(rsi)) return null;
-
-  let score = 50 + (rsi - 50) * 1.6;
-  if(Number.isFinite(mdd)){
-    if(mdd > -0.20) score += 12;
-    else if(mdd > -0.35) score += 5;
-    else if(mdd < -0.60) score -= 10;
-    else if(mdd < -0.45) score -= 5;
+function faBaseScore(data){
+  const V = num(data["Value Score"]);
+  const Q = num(data["Quality Score"]);
+  const R = num(data["Risk Score"]);
+  if(Number.isFinite(V) && Number.isFinite(Q) && Number.isFinite(R)){
+    return clamp(0.45*V + 0.30*Q + 0.25*R, 0, 100);
   }
-  if(Number.isFinite(atr)){
-    if(atr > 0.12) score -= 10;
-    else if(atr > 0.08) score -= 5;
-  }
-  score = Math.max(0, Math.min(100, score));
-  return rating5FromScore(score);
+  const s = num(data["Screener Score"]);
+  return Number.isFinite(s) ? clamp(s, 0, 100) : NaN;
 }
+
+function taCompositeScore(data){
+  // Pro-grade TA composite using multiple indicators.
+  // Returns 0..100, or NaN if we can't compute anything meaningful.
+  const price = num(data["Price"]);
+
+  const rsi = num(data["RSI14"]);
+  const atr = normPct(data["ATR% (14)"]);        // ~0.05 == 5%
+  const mdd = num(data["Max Drawdown (1y)"]);    // negative decimal
+  const distD = normPct(data["% Dist SMA200D"]);
+  const distW = normPct(data["% Dist SMA200W"]);
+  const adx = num(data["ADX14"]);
+  const macdH = num(data["MACD Hist (12,26,9)"]);
+  const stochK = num(data["Stoch %K (14)"]);
+
+  // Support/Resistance reward:risk ratios (already computed)
+  const rrD = num(data["R:R (D)"]);
+  const rrW = num(data["R:R (W)"]);
+  const rrM = num(data["R:R (M)"]);
+
+  // Determine whether we have enough signal
+  const hasMomentum = Number.isFinite(rsi) || (Number.isFinite(macdH) && Number.isFinite(price) && price>0);
+  const hasTrend = Number.isFinite(distD) || Number.isFinite(distW) || Number.isFinite(adx);
+  const hasRR = Number.isFinite(rrD) || Number.isFinite(rrW) || Number.isFinite(rrM);
+  if(!hasMomentum && !hasTrend && !hasRR) return NaN;
+
+  // Trend alignment (price vs long MAs)
+  let trend = 50;
+  if(Number.isFinite(distD)) trend += 120*distD;   // +10% => +12
+  if(Number.isFinite(distW)) trend += 80*distW;    // +10% => +8
+  trend = clamp(trend, 0, 100);
+
+  // Momentum (RSI + MACD histogram scaled to price + mild Stoch contribution)
+  let mom = 50;
+  if(Number.isFinite(rsi)) mom += (rsi - 50) * 1.2;
+  if(Number.isFinite(macdH) && Number.isFinite(price) && price > 0){
+    const histPct = macdH / price;  // ~0.01 == 1% of price
+    if(Number.isFinite(histPct)) mom += 600 * histPct;
+  }
+  if(Number.isFinite(stochK)) mom += (stochK - 50) * 0.25;
+  mom = clamp(mom, 0, 100);
+
+  // Trend strength (ADX)
+  let strength = NaN;
+  if(Number.isFinite(adx)){
+    strength = clamp(50 + (adx - 20)*2.0, 20, 90); // <20 weak, >25 trending
+  }else{
+    strength = 50;
+  }
+
+  // Reward/Risk (use best available timeframe, but don't let outliers dominate)
+  function rrToScore(rr){
+    if(!Number.isFinite(rr) || rr <= 0) return NaN;
+    if(rr >= 3.0) return 88;
+    if(rr >= 2.0) return 78;
+    if(rr >= 1.5) return 68;
+    if(rr >= 1.0) return 58;
+    if(rr >= 0.7) return 48;
+    return 38;
+  }
+  const rrScores = [rrToScore(rrD), rrToScore(rrW), rrToScore(rrM)].filter(Number.isFinite);
+  const rrScore = rrScores.length ? rrScores.reduce((a,b)=>a+b,0)/rrScores.length : 55;
+
+  // Stability / risk penalty
+  let penalty = 0;
+  if(Number.isFinite(atr)){
+    if(atr > 0.12) penalty += 14;
+    else if(atr > 0.08) penalty += 8;
+    else if(atr < 0.03) penalty -= 2;
+  }
+  if(Number.isFinite(mdd)){
+    if(mdd < -0.60) penalty += 14;
+    else if(mdd < -0.45) penalty += 8;
+    else if(mdd > -0.25) penalty -= 3;
+  }
+  penalty = clamp(penalty, -5, 25);
+
+  // Composite (weights chosen to be robust across regimes)
+  let score = 0.35*trend + 0.25*mom + 0.15*strength + 0.15*rrScore + 0.10*55;
+  score = clamp(score - penalty, 0, 100);
+  return score;
+}
+
+function taStrength(data){
+  const s = taCompositeScore(data);
+  return Number.isFinite(s) ? rating5FromScore(s) : null;
+}
+
+function totalScore(data){
+  // Combined score: fundamentals drive most of the edge; technicals help timing + regime fit.
+  const fa = faBaseScore(data);
+  const ta = taCompositeScore(data);
+  if(Number.isFinite(fa) && Number.isFinite(ta)){
+    return clamp(0.65*fa + 0.35*ta, 0, 100);
+  }
+  return Number.isFinite(fa) ? clamp(fa, 0, 100) : (Number.isFinite(ta) ? clamp(ta, 0, 100) : NaN);
+}
+
 
 function pillHTML(r){
   if(!r) return '<span style="color:#888;">—</span>';
@@ -661,7 +760,8 @@ function wireTableView(){
   const coreFields = [
     "Ticker","Company","Sector",
     "__FA_Strength","__TA_Strength",
-    "Screener Score","Price","Market Cap"
+    "__Total_Score","Price","Market Cap",
+    "R:R (D)","R:R (W)","R:R (M)"
   ];
 
   const fundamentals = coreFields.concat([
@@ -1054,6 +1154,18 @@ function updateMacroTiles(rows){
 }
 
 function bootUI(rows){
+
+  // Derived scoring fields (computed client-side so we don't need to regenerate the dataset)
+  rows.forEach(r=>{
+    try{
+      r["__FA_Score"] = faBaseScore(r);
+      r["__TA_Score"] = taCompositeScore(r);
+      r["__Total_Score"] = totalScore(r);
+    }catch(_){
+      // keep row intact; UI will still load
+    }
+  });
+
   // Defensive UI guards: don't hard-crash if optional UI blocks are missing.
   if(!document.querySelector("#table")){
     throw new Error("UI template mismatch: missing #table element in screener.html");
@@ -1066,7 +1178,7 @@ function bootUI(rows){
   setText("kpiRows", rows.length.toLocaleString());
   setText("kpiDCF", pct(median(rows.map(r => num(r["DCF Premium/(Discount)"]))))); 
   setText("kpiFCF", pct(median(rows.map(r => num(r["FCF Yield"])))));
-  setText("kpiScore", fmt2(median(rows.map(r => num(r["Screener Score"])))));
+  setText("kpiScore", fmt2(median(rows.map(r => num(r["__Total_Score"])))));
   updateMacroTiles(rows);
 
   table = new Tabulator("#table", {
@@ -1145,8 +1257,11 @@ const s = num(d["Screener Score"]);
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
       {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong). Derived from Value/Quality/Risk base score (45/30/25). Falls back to Screener Score if components missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
       {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong). Heuristic from RSI14 (momentum), Max Drawdown (1y) (stability), and ATR% (noise).", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
+      {title:"FA Score", field:"__FA_Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false, headerTooltip:"Fundamentals base score (0–100): 45% Value + 30% Quality + 25% Risk."},
+      {title:"TA Score", field:"__TA_Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false, headerTooltip:"Technicals composite score (0–100) derived from trend (200D/200W), momentum (RSI/MACD/Stoch), trend strength (ADX), reward:risk (S/R), and volatility/drawdown penalties."},
 
-      {title:"Score", field:"Screener Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
+
+      {title:"Score", field:"__Total_Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},

@@ -670,13 +670,51 @@ function wireTableView(){
     "Book Value / Share (Assets-Liab)","Net Debt/EBITDA","Avg $Vol 20d",
     "Held % Insiders","Held % Institutions",
   ]);
-
   const technicals = coreFields.concat([
-    "RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)"
+    "RSI14",
+    "ATR% (14)",
+    "Vol (20d, ann)",
+    "Max Drawdown (1y)",
+    "% Dist SMA200D",
+    "SMA200W",
+    "% Dist SMA200W",
+    "MACD Hist (12,26,9)",
+    "ADX14",
+    "Stoch %K (14)",
+    "Stoch %D (3)",
+    "BB %B (20,2)",
+    "BB Width (20,2)",
+    "Support D1",
+    "Support D1 %",
+    "Support D2",
+    "Support D2 %",
+    "Resistance D1",
+    "Resistance D1 %",
+    "Resistance D2",
+    "Resistance D2 %",
+    "R:R (D)",
+    "Support W1",
+    "Support W1 %",
+    "Support W2",
+    "Support W2 %",
+    "Resistance W1",
+    "Resistance W1 %",
+    "Resistance W2",
+    "Resistance W2 %",
+    "R:R (W)",
+    "Support M1",
+    "Support M1 %",
+    "Support M2",
+    "Support M2 %",
+    "Resistance M1",
+    "Resistance M1 %",
+    "Resistance M2",
+    "Resistance M2 %",
+    "R:R (M)"
   ]);
 
 
-  const taLevels = coreFields.concat([
+const taLevels = coreFields.concat([
     "Support D1","Support D1 %","Support D2","Support D2 %","Resistance D1","Resistance D1 %","Resistance D2","Resistance D2 %","R:R (D)",
     "Support W1","Support W1 %","Support W2","Support W2 %","Resistance W1","Resistance W1 %","Resistance W2","Resistance W2 %","R:R (W)",
     "Support M1","Support M1 %","Support M2","Support M2 %","Resistance M1","Resistance M1 %","Resistance M2","Resistance M2 %","R:R (M)"

@@ -60,6 +60,19 @@ function barRow(label, value, max){
     </div>`;
 }
 
+function esc(s){
+  // Minimal HTML escaping to keep the details drawer safe.
+  const str = (s === null || s === undefined) ? "" : String(s);
+  return str.replace(/[&<>"']/g, (ch)=>({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    '"':"&quot;",
+    "'":"&#39;"
+  }[ch]));
+}
+
+
 // Valuation cell coloring (subtle, readable)
 const VAL_BG_UP   = "rgba(34, 197, 94, 0.16)";   // soft green
 const VAL_BG_DOWN = "rgba(239, 68, 68, 0.14)";   // soft red
@@ -464,6 +477,7 @@ function wireDrawerClose(){
 
 
 function renderScoreDetails(d){
+  try{
   const el = document.getElementById("scoreDetailsBody");
   const hint = document.getElementById("scoreDetailsHint");
   if(!el) return;
@@ -596,6 +610,14 @@ function renderScoreDetails(d){
 
   if(hint) hint.textContent = "";
   openDrawer();
+  }catch(e){
+    console.error("renderScoreDetails failed", e);
+    const el = document.getElementById("scoreDetailsBody");
+    if(el){
+      el.innerHTML = `<div class="card"><strong>Could not render details.</strong><div style="margin-top:6px;"><small>${esc(e && (e.message||String(e)) )}</small></div><div style="margin-top:6px;"><small>Tip: hard-refresh and re-run the pipeline if indicators are missing.</small></div></div>`;
+    }
+    openDrawer();
+  }
 }
 
 

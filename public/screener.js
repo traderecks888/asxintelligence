@@ -152,29 +152,169 @@ function strengthSorter(_a, _b, aRow, bRow, column){
 }
 
 function faStrength(data){
-  const V = num(data["Value Score"]);
-  const Q = num(data["Quality Score"]);
-  const R = num(data["Risk Score"]);
-  let base = NaN;
-  if(Number.isFinite(V) && Number.isFinite(Q) && Number.isFinite(R)){
-    base = 0.45*V + 0.30*Q + 0.25*R;
-  }else{
-    base = num(data["Screener Score"]);
-  }
+  const base = faBaseScore(data);
   return rating5FromScore(base);
 }
 
+
+
+function liquidityBonus(data){
+  // Liquidity bonus is a small additive bonus (0..10) based on trading dollar volume.
+  // Prefer dataset-provided value; otherwise derive percentile rank from Avg $Vol 20d.
+  let liq = num(data["Liquidity Bonus"]);
+  if(Number.isFinite(liq)) return clamp(liq, 0, 10);
+
+  const dv = num(data["Avg $Vol 20d"]);
+  if(!Number.isFinite(dv)) return NaN;
+
+  // Use current filtered universe if available, otherwise raw.
+  const src = (typeof filteredNow !== "undefined" && filteredNow && filteredNow.length) ? filteredNow : (typeof raw !== "undefined" ? raw : []);
+  const dvs = (src || [])
+    .map(x => num(x["Avg $Vol 20d"]))
+    .filter(Number.isFinite)
+    .sort((a,b)=>a-b);
+
+  if(!dvs.length) return NaN;
+
+  // percentile rank 0..1
+  let lo = 0, hi = dvs.length-1;
+  while(lo < hi){
+    const mid = (lo+hi)>>1;
+    if(dvs[mid] < dv) lo = mid+1; else hi = mid;
+  }
+  const pr = (dvs.length <= 1) ? 0 : (lo / (dvs.length-1));
+  liq = pr * 10.0;
+  return clamp(liq, 0, 10);
+}
 function faBaseScore(data){
   const V = num(data["Value Score"]);
   const Q = num(data["Quality Score"]);
   const R = num(data["Risk Score"]);
+
+  // Fundamental base score: 45% Value + 30% Quality + 25% Risk, plus a small liquidity bonus (0..10).
   if(Number.isFinite(V) && Number.isFinite(Q) && Number.isFinite(R)){
-    return clamp(0.45*V + 0.30*Q + 0.25*R, 0, 100);
+    const base = 0.45*V + 0.30*Q + 0.25*R;
+    const liq = liquidityBonus(data);
+    const total = Number.isFinite(liq) ? (base + liq) : base;
+    return clamp(total, 0, 100);
   }
+
+  // Fallback to dataset-provided screener score if components missing.
   const s = num(data["Screener Score"]);
   return Number.isFinite(s) ? clamp(s, 0, 100) : NaN;
 }
 
+
+
+function taCompositeParts(data){
+  // Mirrors taCompositeScore(), but returns component scores for explanation.
+  const rsi = num(data["RSI14"]);
+  const atr = normPct(data["ATR% (14)"]);
+  const mdd = num(data["Max Drawdown (1y)"]);
+  const distD = normPct(data["% Dist SMA200D"]);
+  const distW = normPct(data["% Dist SMA200W"]);
+  const adx = num(data["ADX14"]);
+  const macdH = num(data["MACD Hist (12,26,9)"]);
+  const stochK = num(data["Stoch %K (14)"]);
+
+  const rrD = num(data["R:R (D)"]);
+  const rrW = num(data["R:R (W)"]);
+  const rrM = num(data["R:R (M)"]);
+
+  // Trend: above long-term MAs is good; deep below is bad.
+  function distToScore(d){
+    if(!Number.isFinite(d)) return NaN;
+    if(d >= 0.25) return 95;
+    if(d >= 0.12) return 85;
+    if(d >= 0.05) return 72;
+    if(d >= 0.00) return 60;
+    if(d >= -0.05) return 45;
+    if(d >= -0.12) return 30;
+    return 18;
+  }
+  const td = distToScore(distD);
+  const tw = distToScore(distW);
+  const trendParts = [td, tw].filter(Number.isFinite);
+  const trend = trendParts.length ? trendParts.reduce((a,b)=>a+b,0)/trendParts.length : NaN;
+
+  // Momentum: RSI + MACD hist + Stoch K (lightweight)
+  function rsiToScore(x){
+    if(!Number.isFinite(x)) return NaN;
+    if(x >= 70) return 85;
+    if(x >= 60) return 75;
+    if(x >= 50) return 62;
+    if(x >= 40) return 48;
+    if(x >= 30) return 35;
+    return 22;
+  }
+  function macdToScore(h){
+    if(!Number.isFinite(h)) return NaN;
+    if(h >= 0.12) return 82;
+    if(h >= 0.05) return 72;
+    if(h >= 0.00) return 60;
+    if(h >= -0.05) return 45;
+    return 30;
+  }
+  function stochToScore(k){
+    if(!Number.isFinite(k)) return NaN;
+    if(k >= 80) return 78;
+    if(k >= 60) return 68;
+    if(k >= 40) return 58;
+    if(k >= 20) return 45;
+    return 35;
+  }
+  const momParts = [rsiToScore(rsi), macdToScore(macdH), stochToScore(stochK)].filter(Number.isFinite);
+  const mom = momParts.length ? (0.55*momParts[0] + 0.25*(momParts[1]||55) + 0.20*(momParts[2]||55)) : NaN;
+
+  // Trend strength (ADX)
+  function adxToScore(a){
+    if(!Number.isFinite(a)) return NaN;
+    if(a >= 35) return 85;
+    if(a >= 25) return 72;
+    if(a >= 20) return 62;
+    if(a >= 15) return 52;
+    return 45;
+  }
+  const strength = adxToScore(adx);
+
+  // Reward/Risk (use average of D/W/M if available)
+  function rrToScore(rr){
+    if(!Number.isFinite(rr)) return NaN;
+    if(rr >= 4.0) return 95;
+    if(rr >= 3.0) return 88;
+    if(rr >= 2.0) return 78;
+    if(rr >= 1.5) return 68;
+    if(rr >= 1.0) return 58;
+    if(rr >= 0.7) return 48;
+    return 38;
+  }
+  const rrScores = [rrToScore(rrD), rrToScore(rrW), rrToScore(rrM)].filter(Number.isFinite);
+  const rrScore = rrScores.length ? rrScores.reduce((a,b)=>a+b,0)/rrScores.length : NaN;
+
+  // Penalty (volatility + drawdown)
+  let penalty = 0;
+  if(Number.isFinite(atr)){
+    if(atr > 0.12) penalty += 14;
+    else if(atr > 0.08) penalty += 8;
+    else if(atr < 0.03) penalty -= 2;
+  }
+  if(Number.isFinite(mdd)){
+    if(mdd < -0.60) penalty += 14;
+    else if(mdd < -0.45) penalty += 8;
+    else if(mdd > -0.25) penalty -= 3;
+  }
+  penalty = clamp(penalty, -5, 25);
+
+  // Final composite mirrors taCompositeScore weights
+  const base = (Number.isFinite(trend)?0.35*trend:0) +
+               (Number.isFinite(mom)?0.25*mom:0) +
+               (Number.isFinite(strength)?0.15*strength:0) +
+               (Number.isFinite(rrScore)?0.15*rrScore:0) +
+               0.10*55;
+  const total = clamp(base - penalty, 0, 100);
+
+  return {trend, mom, strength, rrScore, penalty, total};
+}
 function taCompositeScore(data){
   // Pro-grade TA composite using multiple indicators.
   // Returns 0..100, or NaN if we can't compute anything meaningful.
@@ -326,56 +466,49 @@ function wireDrawerClose(){
 function renderScoreDetails(d){
   const el = document.getElementById("scoreDetailsBody");
   const hint = document.getElementById("scoreDetailsHint");
-  const drawer = document.getElementById("detailDrawer");
   if(!el) return;
 
-  const score = num(d["Screener Score"]);
-  const v = num(d["Value Score"]);
-  const q = num(d["Quality Score"]);
-  const r = num(d["Risk Score"]);
+  const ticker = esc(d["Ticker"] || d["Code"] || "");
+  const company = esc(d["Company"] || d["Name"] || "");
+  const sector = esc(d["Sector"] || "");
 
-  let liq = num(d["Liquidity Bonus"]);
-  // Fallback if Liquidity Bonus not provided by dataset yet.
-  if(!Number.isFinite(liq)){
-    const dv = num(d["Avg $Vol 20d"]);
-    if(Number.isFinite(dv)){
-      const dvs = (filteredNow.length ? filteredNow : raw)
-        .map(x => num(x["Avg $Vol 20d"]))
-        .filter(Number.isFinite)
-        .sort((a,b)=>a-b);
-      if(dvs.length){
-        const idx = dvs.findIndex(x => x >= dv);
-        const pr = idx >= 0 ? (idx / (dvs.length-1 || 1)) : 1.0;
-        liq = pr * 10.0;
-      }
-    }
-  }
-
-  const parts = [
-    {name:"Value", score:v, weight:0.45},
-    {name:"Quality", score:q, weight:0.30},
-    {name:"Risk", score:r, weight:0.25},
-  ];
-  const bw = pickBestWorst(parts);
-  const bestTag = bw.best ? `${bw.best.name}-led` : "";
-  const worstTag = bw.worst ? `Weakest: ${bw.worst.name}` : "";
-
-  const pred =
-    (Number.isFinite(v)?0.45*v:0) +
-    (Number.isFinite(q)?0.30*q:0) +
-    (Number.isFinite(r)?0.25*r:0) +
-    (Number.isFinite(liq)?liq:0);
-  const delta = Number.isFinite(score) ? (score - pred) : NaN;
-
-  const company = String(d["Company"]||"");
-  const ticker = String(d["Ticker"]||"");
-  const sector = String(d["Sector"]||"");
   const price = num(d["Price"]);
   const mcap = num(d["Market Cap"]);
+
+  // Scores
+  const fa = Number.isFinite(num(d["__FA_Score"])) ? num(d["__FA_Score"]) : faBaseScore(d);
+  const ta = Number.isFinite(num(d["__TA_Score"])) ? num(d["__TA_Score"]) : taCompositeScore(d);
+  const total = Number.isFinite(num(d["__Total_Score"])) ? num(d["__Total_Score"]) : totalScore(d);
+
+  // Fundamental components (if available)
+  const V = num(d["Value Score"]);
+  const Q = num(d["Quality Score"]);
+  const R = num(d["Risk Score"]);
+  const liq = liquidityBonus(d);
+
+  // TA parts for explanation
+  const tp = taCompositeParts(d);
+
+  // Legacy dataset score (optional)
+  const legacy = num(d["Screener Score"]);
+
+  // small context metrics
   const bvps = num(d["Book Value / Share (Assets-Liab)"]);
   const pb = num(d["P/B"]);
   const fcfy = num(d["FCF Yield"]);
   const dcfdisc = num(d["DCF Premium/(Discount)"]);
+
+  // Tags: best/worst component (FA) + TA trend info
+  const parts = [
+    {k:"Value", v:V},
+    {k:"Quality", v:Q},
+    {k:"Risk", v:R},
+    {k:"Liquidity", v:Number.isFinite(liq)?(liq*10):NaN} // scale to compare
+  ].filter(x=>Number.isFinite(x.v));
+
+  parts.sort((a,b)=>b.v-a.v);
+  const bestTag = parts.length ? (`Best: ${parts[0].k}`) : "";
+  const worstTag = parts.length ? (`Weakest: ${parts[parts.length-1].k}`) : "";
 
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
@@ -385,7 +518,9 @@ function renderScoreDetails(d){
         <div class="badges">
           ${bestTag ? `<span class="badge">${bestTag}</span>` : ""}
           ${worstTag ? `<span class="badge">${worstTag}</span>` : ""}
-          ${Number.isFinite(score) ? `<span class="badge">Score: ${score.toFixed(2)} / 100</span>` : `<span class="badge">Score: –</span>`}
+          ${Number.isFinite(total) ? `<span class="badge">Total: ${total.toFixed(2)} / 100</span>` : `<span class="badge">Total: –</span>`}
+          ${Number.isFinite(fa) ? `<span class="badge">FA: ${fa.toFixed(1)}</span>` : ""}
+          ${Number.isFinite(ta) ? `<span class="badge">TA: ${ta.toFixed(1)}</span>` : ""}
         </div>
       </div>
 
@@ -403,24 +538,57 @@ function renderScoreDetails(d){
 
     <div class="grid2">
       <div>
-        ${barRow("Value (45%)", v, 100)}
-        ${barRow("Quality (30%)", q, 100)}
-        ${barRow("Risk (25%)", r, 100)}
-        ${barRow("Liquidity bonus (+0 to +10)", liq, 10)}
+        ${barRow("Total score (65% FA + 35% TA)", total, 100)}
+        ${barRow("Fundamental base (FA)", fa, 100)}
+        ${barRow("Technical composite (TA)", ta, 100)}
       </div>
       <div>
         <div class="card">
-          <strong>How the score is formed</strong>
+          <strong>How the scoring works</strong>
           <div style="margin-top:6px;">
-            <small>Screener Score is a composite (0–100) built at refresh time — the UI does not recompute it.<br><br><strong>1) Component scores (each 0–100)</strong><br><strong>Value (45%)</strong>: percentile ranks of <em>DCF discount</em>, <em>FCF yield</em>, <em>MOS upside</em> (from MOS Buy Price vs Price), and <em>low P/B</em>.<br><strong>Quality (30%)</strong>: percentile ranks of <em>ROE</em>, <em>profit margin</em>, and <em>low net debt/EBITDA</em>.<br><strong>Risk (25%)</strong>: percentile ranks favoring <em>lower volatility (Vol 20d)</em>, <em>lower ATR%</em>, and <em>smaller drawdowns</em>.<br><br><strong>2) Missing data handling</strong><br>If Value/Quality/Risk inputs are missing, weights are re-normalized across available components and a small completeness penalty may apply (depending on your pipeline version).<br><br><strong>3) Liquidity Bonus (0–10)</strong><br>Avg $Vol 20d ≈ mean over ~20 trading days of (Close × Volume) in AUD.<br>LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the ASX universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.</small>
+            <small>
+              <b>Total Score</b> blends fundamentals (FA) and technicals (TA): <b>0.65×FA + 0.35×TA</b> (capped 0–100).
+              <br>
+              <b>FA</b> = 45% Value + 30% Quality + 25% Risk + Liquidity bonus (0..10). If the component scores are missing, the app falls back to the dataset’s “Screener Score”.
+              <br>
+              <b>TA</b> combines trend (distance to SMA200D/SMA200W), momentum (RSI/MACD/Stoch), trend strength (ADX), and multi-timeframe Reward:Risk, with penalties for high ATR% and deep 1y drawdown.
+              <br>
+              Note: “–” means missing/unavailable; it is not the same as 0.
+            </small>
           </div>
           <div style="margin-top:10px;">
             <small>
-              Computed: ${Number.isFinite(pred)?pred.toFixed(2):"–"} •
-              Reported: ${Number.isFinite(score)?score.toFixed(2):"–"} •
-              Δ: ${Number.isFinite(delta)?delta.toFixed(2):"–"} (rounding/clip differences)
+              Legacy dataset score: ${Number.isFinite(legacy)?legacy.toFixed(2):"–"} •
+              Current Total: ${Number.isFinite(total)?total.toFixed(2):"–"}
             </small>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:12px;">
+      <div class="card">
+        <strong>Fundamentals breakdown</strong>
+        <div style="margin-top:8px;">
+          ${barRow("Value (45%)", V, 100)}
+          ${barRow("Quality (30%)", Q, 100)}
+          ${barRow("Risk (25%)", R, 100)}
+          ${barRow("Liquidity bonus (+0..+10)", liq, 10)}
+        </div>
+      </div>
+      <div class="card">
+        <strong>Technicals breakdown</strong>
+        <div style="margin-top:8px;">
+          ${barRow("Trend (SMA200D/SMA200W)", tp.trend, 100)}
+          ${barRow("Momentum (RSI/MACD/Stoch)", tp.mom, 100)}
+          ${barRow("Trend strength (ADX)", tp.strength, 100)}
+          ${barRow("Reward:Risk (D/W/M)", tp.rrScore, 100)}
+          ${barRow("Penalty (ATR% + Drawdown)", (Number.isFinite(tp.penalty)?(tp.penalty/25*100):NaN), 100)}
+        </div>
+        <div style="margin-top:8px;">
+          <small style="color:#666;">
+            Penalty is shown as a % of max penalty (25). Higher penalty reduces TA score.
+          </small>
         </div>
       </div>
     </div>
@@ -1255,13 +1423,13 @@ const s = num(d["Screener Score"]);
       {title:"Ticker", field:"Ticker",  width:90, headerFilter:true},
       {title:"Company", field:"Company",  minWidth:220, headerFilter:true},
       {title:"Sector", field:"Sector", width:160, headerFilter:true},
-      {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong). Derived from Value/Quality/Risk base score (45/30/25). Falls back to Screener Score if components missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
-      {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong). Heuristic from RSI14 (momentum), Max Drawdown (1y) (stability), and ATR% (noise).", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
+      {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong) derived from the Fundamental base score: 45% Value + 30% Quality + 25% Risk + Liquidity bonus (0..10, capped at 100). Falls back to dataset Screener Score if components are missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
+      {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong) derived from the TA composite (0–100): trend (distance to SMA200D/SMA200W), momentum (RSI14, MACD histogram, Stoch %K), trend strength (ADX14), and Reward:Risk (D/W/M), with penalties for high ATR% and deep 1y drawdown. Designed for timing/regime-fit, not intrinsic value.", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
       {title:"FA Score", field:"__FA_Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false, headerTooltip:"Fundamentals base score (0–100): 45% Value + 30% Quality + 25% Risk."},
       {title:"TA Score", field:"__TA_Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false, headerTooltip:"Technicals composite score (0–100) derived from trend (200D/200W), momentum (RSI/MACD/Stoch), trend strength (ADX), reward:risk (S/R), and volatility/drawdown penalties."},
 
 
-      {title:"Score", field:"__Total_Score",  headerTooltip:'Screener Score (0–100). Base score is built from three component scores (each 0–100, percentile-rank based): Value (45%), Quality (30%), Risk (25). If a component is missing (NaN), weights are re-normalized across the remaining components and a small completeness penalty (up to 10 pts) is applied. Liquidity Bonus (0–10) is added on top and is purely a tradability boost: Avg $Vol 20d = average over ~20 trading days of (Close × Volume) in AUD; LiquidityBonus = 10 × percentile_rank(Avg $Vol 20d) across the universe (0=least liquid, 10=most liquid). Missing liquidity → bonus 0. Note: “–” means missing/unavailable data; it is not the same as 0.', formatter:(c)=>fmt2(num(c.getValue()))},
+      {title:"Score", field:"__Total_Score",  headerTooltip:"Total Score (0–100): 65% Fundamental base + 35% Technical composite. Fundamental base = 45% Value + 30% Quality + 25% Risk + Liquidity bonus (0..10, capped). Technical composite blends trend (SMA200D/SMA200W distance), momentum (RSI/MACD/Stoch), trend strength (ADX), and multi-timeframe R:R, with penalties for high ATR% and deep 1y drawdown. “–” means missing/unavailable; it is not the same as 0.", formatter:(c)=>fmt2(num(c.getValue()))},
       {title:"Value", field:"Value Score", headerTooltip:'Value Score (0–100): percentile composite of DCF discount, FCF yield, MOS upside, and low P/B.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Quality", field:"Quality Score", headerTooltip:'Quality Score (0–100): percentile composite of ROE, profit margin, and low net debt/EBITDA.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},
       {title:"Risk", field:"Risk Score", headerTooltip:'Risk Score (0–100): percentile composite favoring lower vol, lower ATR%, and smaller drawdowns.', formatter:(c)=>fmt2(num(c.getValue())), visible:false},

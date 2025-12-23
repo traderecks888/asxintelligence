@@ -60,6 +60,30 @@ function barRow(label, value, max){
     </div>`;
 }
 
+function updateDualFill(minEl, maxEl, fillEl){
+  if(!minEl || !maxEl || !fillEl) return;
+  const mn = num(minEl.value);
+  const mx = num(maxEl.value);
+  const lo = Number(minEl.min);
+  const hi = Number(minEl.max);
+  const span = (hi - lo) || 1;
+
+  const leftPct = clamp((mn - lo) / span, 0, 1) * 100;
+  const rightPct = clamp((mx - lo) / span, 0, 1) * 100;
+  const l = Math.min(leftPct, rightPct);
+  const r = Math.max(leftPct, rightPct);
+
+  const wrap = fillEl.parentElement;
+  const w = wrap ? wrap.getBoundingClientRect().width : 0;
+  const thumb = 18;
+  const usable = Math.max(0, w - thumb);
+  const lpx = (l/100) * usable + (thumb/2);
+  const rpx = (r/100) * usable + (thumb/2);
+
+  fillEl.style.left = lpx + "px";
+  fillEl.style.width = Math.max(0, rpx - lpx) + "px";
+}
+
 function esc(s){
   // Minimal HTML escaping to keep the details drawer safe.
   const str = (s === null || s === undefined) ? "" : String(s);
@@ -727,116 +751,60 @@ function getChartWindow(){
 
 
 function getDivWindow(fallback){
-  const d = fallback || {};
-  const fxMin = (d && Number.isFinite(d.xMin)) ? d.xMin : 0.0;
-  const fxMax = (d && Number.isFinite(d.xMax)) ? d.xMax : 0.15;
-  const fyMin = (d && Number.isFinite(d.yMin)) ? d.yMin : 0.0;
-  const fyMax = (d && Number.isFinite(d.yMax)) ? d.yMax : 2.0;
+  const fx = fallback && Number.isFinite(fallback.xMax) ? fallback.xMax : 0.15;
+  const fy = fallback && Number.isFinite(fallback.yMax) ? fallback.yMax : 2.0;
+  const fminx = fallback && Number.isFinite(fallback.xMin) ? fallback.xMin : 0.0;
+  const fminy = fallback && Number.isFinite(fallback.yMin) ? fallback.yMin : 0.0;
 
   const xMinEl = document.getElementById("divXMin");
   const xMaxEl = document.getElementById("divXMax");
   const yMinEl = document.getElementById("divYMin");
   const yMaxEl = document.getElementById("divYMax");
 
-  let xMin = xMinEl ? num(xMinEl.value) : fxMin;
-  let xMax = xMaxEl ? num(xMaxEl.value) : fxMax;
-  let yMin = yMinEl ? num(yMinEl.value) : fyMin;
-  let yMax = yMaxEl ? num(yMaxEl.value) : fyMax;
-
-  if(!Number.isFinite(xMin)) xMin = fxMin;
-  if(!Number.isFinite(xMax)) xMax = fxMax;
-  if(!Number.isFinite(yMin)) yMin = fyMin;
-  if(!Number.isFinite(yMax)) yMax = fyMax;
-
-  // Normalize so min <= max
-  if(xMin > xMax){ const t = xMin; xMin = xMax; xMax = t; }
-  if(yMin > yMax){ const t = yMin; yMin = yMax; yMax = t; }
+  const xMin = xMinEl ? num(xMinEl.value)/100 : fminx;
+  const xMax = xMaxEl ? num(xMaxEl.value)/100 : fx;
+  const yMin = yMinEl ? num(yMinEl.value)/100 : fminy;
+  const yMax = yMaxEl ? num(yMaxEl.value)/100 : fy;
 
   return {xMin, xMax, yMin, yMax};
 }
 
-
-function updateDualFill(minEl, maxEl, fillEl){
-  if(!minEl || !maxEl || !fillEl) return;
-  const mn = num(minEl.value);
-  const mx = num(maxEl.value);
-  const minA = Number(minEl.min);
-  const maxA = Number(minEl.max);
-  const lo = Number.isFinite(minA) ? minA : 0;
-  const hi = Number.isFinite(maxA) ? maxA : 1;
-  const span = (hi - lo) || 1;
-
-  const leftPct = clamp((mn - lo) / span, 0, 1) * 100;
-  const rightPct = clamp((mx - lo) / span, 0, 1) * 100;
-  const l = Math.min(leftPct, rightPct);
-  const r = Math.max(leftPct, rightPct);
-
-  // Convert to pixel positions so the filled segment meets the thumbs cleanly.
-  const wrap = fillEl.parentElement;
-  const w = wrap ? wrap.getBoundingClientRect().width : 0;
-  const thumb = 18; // keep in sync with CSS --thumb / thumb size
-  const usable = Math.max(0, w - thumb);
-  const lpx = (l/100) * usable + (thumb/2);
-  const rpx = (r/100) * usable + (thumb/2);
-
-  fillEl.style.left = lpx + "px";
-  fillEl.style.width = Math.max(0, rpx - lpx) + "px";
-}
 function wireDividendAxisControls(){
   const xMinEl = document.getElementById("divXMin");
   const xMaxEl = document.getElementById("divXMax");
   const yMinEl = document.getElementById("divYMin");
   const yMaxEl = document.getElementById("divYMax");
-  const rEl = document.getElementById("divReset");
   const xFillEl = document.getElementById("divXFill");
   const yFillEl = document.getElementById("divYFill");
+  const rEl = document.getElementById("divReset");
 
-  // Defaults are used for reset and for first render.
-  if(!window.__divDefaults) window.__divDefaults = {xMin:0.0, xMax:0.15, yMin:0.0, yMax:2.0};
+  if(!xMinEl || !xMaxEl || !yMinEl || !yMaxEl) return;
 
-  const normalizePair = (minEl, maxEl, prefer)=>{
-    if(!minEl || !maxEl) return;
-    let mn = num(minEl.value);
-    let mx = num(maxEl.value);
-    if(!Number.isFinite(mn) || !Number.isFinite(mx)) return;
-    if(mn > mx){
-      if(prefer === "min"){
-        mn = mx;
-        minEl.value = mn;
-      }else if(prefer === "max"){
-        mx = mn;
-        maxEl.value = mx;
-      }else{
-        const t = mn; mn = mx; mx = t;
-        minEl.value = mn; maxEl.value = mx;
-      }
+  const clampPair = (aEl, bEl)=>{
+    const a = num(aEl.value), b = num(bEl.value);
+    if(a > b){
+      if(document.activeElement === aEl) bEl.value = aEl.value;
+      else aEl.value = bEl.value;
     }
   };
 
   const setLabels = ()=>{
-    const xm = xMinEl ? num(xMinEl.value) : NaN;
-    const xM = xMaxEl ? num(xMaxEl.value) : NaN;
-    const ym = yMinEl ? num(yMinEl.value) : NaN;
-    const yM = yMaxEl ? num(yMaxEl.value) : NaN;
-
-    if(Number.isFinite(xm)) setText("divXMinV", Math.round(xm*100) + "%");
-    if(Number.isFinite(xM)) setText("divXMaxV", Math.round(xM*100) + "%");
-    if(Number.isFinite(ym)) setText("divYMinV", Math.round(ym*100) + "%");
-    if(Number.isFinite(yM)) setText("divYMaxV", Math.round(yM*100) + "%");
+    const xmin = num(xMinEl.value), xmax = num(xMaxEl.value);
+    const ymin = num(yMinEl.value), ymax = num(yMaxEl.value);
+    setText("divXRangeV", `${Math.round(xmin)}%–${Math.round(xmax)}%`);
+    setText("divYRangeV", `${Math.round(ymin)}%–${Math.round(ymax)}%`);
+    updateDualFill(xMinEl, xMaxEl, xFillEl);
+    updateDualFill(yMinEl, yMaxEl, yFillEl);
   };
 
   const apply = ()=>{
-    // Keep sliders consistent.
-    normalizePair(xMinEl, xMaxEl, "min");
-    normalizePair(yMinEl, yMaxEl, "min");
-
+    clampPair(xMinEl, xMaxEl);
+    clampPair(yMinEl, yMaxEl);
     setLabels();
     window.__divUserSet = true;
-    updateDualFill(xMinEl, xMaxEl, xFillEl);
-    updateDualFill(yMinEl, yMaxEl, yFillEl);
 
+    const win = getDivWindow(window.__divDefaults || {xMin:0,xMax:0.15,yMin:0,yMax:2.0});
     if(divChart){
-      const win = getDivWindow(window.__divDefaults);
       divChart.options.scales.x.min = win.xMin;
       divChart.options.scales.x.max = win.xMax;
       divChart.options.scales.y.min = win.yMin;
@@ -847,38 +815,32 @@ function wireDividendAxisControls(){
     }
   };
 
-  if(xMinEl) xMinEl.addEventListener("input", ()=>{ normalizePair(xMinEl, xMaxEl, "min"); apply(); });
-  if(xMaxEl) xMaxEl.addEventListener("input", ()=>{ normalizePair(xMinEl, xMaxEl, "max"); apply(); });
-  if(yMinEl) yMinEl.addEventListener("input", ()=>{ normalizePair(yMinEl, yMaxEl, "min"); apply(); });
-  if(yMaxEl) yMaxEl.addEventListener("input", ()=>{ normalizePair(yMinEl, yMaxEl, "max"); apply(); });
+  const reset = ()=>{
+    xMinEl.value = "0";
+    xMaxEl.value = "15";
+    yMinEl.value = "0";
+    yMaxEl.value = "200";
+    window.__divUserSet = false;
+    setLabels();
+    if(divChart){
+      divChart.options.scales.x.min = 0;
+      divChart.options.scales.x.max = 0.15;
+      divChart.options.scales.y.min = 0;
+      divChart.options.scales.y.max = 2.0;
+      divChart.update("none");
+    }
+  };
 
-  if(rEl){
-    rEl.addEventListener("click", ()=>{
-      window.__divUserSet = false;
-      const d = window.__divDefaults || {xMin:0.0, xMax:0.15, yMin:0.0, yMax:2.0};
-      if(xMinEl) xMinEl.value = d.xMin;
-      if(xMaxEl) xMaxEl.value = d.xMax;
-      if(yMinEl) yMinEl.value = d.yMin;
-      if(yMaxEl) yMaxEl.value = d.yMax;
-      updateDualFill(xMinEl, xMaxEl, xFillEl);
-      updateDualFill(yMinEl, yMaxEl, yFillEl);
-      // Don't mark as "user set" on reset; just apply defaults.
-      if(divChart){
-        const win = getDivWindow(d);
-        divChart.options.scales.x.min = win.xMin;
-        divChart.options.scales.x.max = win.xMax;
-        divChart.options.scales.y.min = win.yMin;
-        divChart.options.scales.y.max = win.yMax;
-        divChart.update("none");
-      }else{
-        rebuildCharts(filteredNow || raw || []);
-      }
-      setLabels();
-    });
-  }
+  xMinEl.addEventListener("input", apply);
+  xMaxEl.addEventListener("input", apply);
+  yMinEl.addEventListener("input", apply);
+  yMaxEl.addEventListener("input", apply);
+  if(rEl) rEl.addEventListener("click", (e)=>{ e.preventDefault(); reset(); });
 
   setLabels();
+  window.addEventListener("resize", ()=>setTimeout(setLabels, 0));
 }
+
 
 
 function wireColumnControls(){
@@ -2023,12 +1985,10 @@ function rebuildCharts(rows){
           }
         }
       });
+      window.__divDefaults = {xMin:0,xMax:0.15,yMin:0,yMax:2.0};
+
     }
   }catch(e){ console.warn("Dividend chart error", e); }
-
-  // Initial visual fill state
-  updateDualFill(xMinEl, xMaxEl, xFillEl);
-  updateDualFill(yMinEl, yMaxEl, yFillEl);
 
 }
 

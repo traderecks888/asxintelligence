@@ -28,12 +28,16 @@
     #err code{background:#fff3cd;padding:2px 6px;border-radius:8px}
     details{margin-top:10px}
     .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
-    .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
+    .sliderRow{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr) minmax(88px,140px);gap:10px;align-items:center}
     input[type="range"]{width:100%}
 
+    .sliderRow > *{min-width:0}
+    .sliderRow > :last-child{justify-self:end;text-align:right;white-space:nowrap}
+    .dualRange{min-width:0}
+
     /* Dual-handle range (two <input type=range> stacked with a shared track + selected range fill) */
-    .sliderRow.dual{grid-template-columns:180px 1fr 140px}
-    .dualRange{position:relative;height:26px}
+    .sliderRow.dual{grid-template-columns:minmax(120px,180px) minmax(0,1fr) minmax(88px,140px)}
+    .dualRange{position:relative;height:28px;--thumb:18px}
     .dualRange .dualTrack{
       position:absolute;left:0;right:0;top:50%;
       height:6px;border-radius:999px;background:#ddd;
@@ -46,7 +50,7 @@
       left:0;width:0;
     }
     .dualRange input[type="range"]{
-      position:absolute;left:0;top:0;width:100%;height:26px;margin:0;
+      position:absolute;left:0;top:0;width:100%;height:28px;margin:0;
       background:transparent;
       pointer-events:none;
       -webkit-appearance:none;appearance:none;

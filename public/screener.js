@@ -765,12 +765,22 @@ function updateDualFill(minEl, maxEl, fillEl){
   const lo = Number.isFinite(minA) ? minA : 0;
   const hi = Number.isFinite(maxA) ? maxA : 1;
   const span = (hi - lo) || 1;
+
   const leftPct = clamp((mn - lo) / span, 0, 1) * 100;
   const rightPct = clamp((mx - lo) / span, 0, 1) * 100;
   const l = Math.min(leftPct, rightPct);
   const r = Math.max(leftPct, rightPct);
-  fillEl.style.left = l + "%";
-  fillEl.style.width = (r - l) + "%";
+
+  // Convert to pixel positions so the filled segment meets the thumbs cleanly.
+  const wrap = fillEl.parentElement;
+  const w = wrap ? wrap.getBoundingClientRect().width : 0;
+  const thumb = 18; // keep in sync with CSS --thumb / thumb size
+  const usable = Math.max(0, w - thumb);
+  const lpx = (l/100) * usable + (thumb/2);
+  const rpx = (r/100) * usable + (thumb/2);
+
+  fillEl.style.left = lpx + "px";
+  fillEl.style.width = Math.max(0, rpx - lpx) + "px";
 }
 function wireDividendAxisControls(){
   const xMinEl = document.getElementById("divXMin");

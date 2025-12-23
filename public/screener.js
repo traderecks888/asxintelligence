@@ -755,12 +755,31 @@ function getDivWindow(fallback){
   return {xMin, xMax, yMin, yMax};
 }
 
+
+function updateDualFill(minEl, maxEl, fillEl){
+  if(!minEl || !maxEl || !fillEl) return;
+  const mn = num(minEl.value);
+  const mx = num(maxEl.value);
+  const minA = Number(minEl.min);
+  const maxA = Number(minEl.max);
+  const lo = Number.isFinite(minA) ? minA : 0;
+  const hi = Number.isFinite(maxA) ? maxA : 1;
+  const span = (hi - lo) || 1;
+  const leftPct = clamp((mn - lo) / span, 0, 1) * 100;
+  const rightPct = clamp((mx - lo) / span, 0, 1) * 100;
+  const l = Math.min(leftPct, rightPct);
+  const r = Math.max(leftPct, rightPct);
+  fillEl.style.left = l + "%";
+  fillEl.style.width = (r - l) + "%";
+}
 function wireDividendAxisControls(){
   const xMinEl = document.getElementById("divXMin");
   const xMaxEl = document.getElementById("divXMax");
   const yMinEl = document.getElementById("divYMin");
   const yMaxEl = document.getElementById("divYMax");
   const rEl = document.getElementById("divReset");
+  const xFillEl = document.getElementById("divXFill");
+  const yFillEl = document.getElementById("divYFill");
 
   // Defaults are used for reset and for first render.
   if(!window.__divDefaults) window.__divDefaults = {xMin:0.0, xMax:0.15, yMin:0.0, yMax:2.0};
@@ -803,6 +822,8 @@ function wireDividendAxisControls(){
 
     setLabels();
     window.__divUserSet = true;
+    updateDualFill(xMinEl, xMaxEl, xFillEl);
+    updateDualFill(yMinEl, yMaxEl, yFillEl);
 
     if(divChart){
       const win = getDivWindow(window.__divDefaults);
@@ -829,6 +850,8 @@ function wireDividendAxisControls(){
       if(xMaxEl) xMaxEl.value = d.xMax;
       if(yMinEl) yMinEl.value = d.yMin;
       if(yMaxEl) yMaxEl.value = d.yMax;
+      updateDualFill(xMinEl, xMaxEl, xFillEl);
+      updateDualFill(yMinEl, yMaxEl, yFillEl);
       // Don't mark as "user set" on reset; just apply defaults.
       if(divChart){
         const win = getDivWindow(d);
@@ -1992,6 +2015,10 @@ function rebuildCharts(rows){
       });
     }
   }catch(e){ console.warn("Dividend chart error", e); }
+
+  // Initial visual fill state
+  updateDualFill(xMinEl, xMaxEl, xFillEl);
+  updateDualFill(yMinEl, yMaxEl, yFillEl);
 
 }
 

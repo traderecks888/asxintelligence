@@ -30,6 +30,19 @@
     .sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
     .sliderRow{display:grid;grid-template-columns:180px 1fr 70px;gap:8px;align-items:center}
     input[type="range"]{width:100%}
+
+    /* Dual-handle range (two <input type=range> stacked to feel like one slider bar) */
+    .sliderRow.dual{grid-template-columns:180px 1fr 140px}
+    .dualRange{position:relative;height:26px}
+    .dualRange input[type="range"]{
+      position:absolute;left:0;top:0;width:100%;height:26px;margin:0;
+      background:transparent;pointer-events:none;
+      -webkit-appearance:none;appearance:none;
+    }
+    .dualRange input[type="range"]::-webkit-slider-thumb{pointer-events:auto}
+    .dualRange input[type="range"]::-moz-range-thumb{pointer-events:auto}
+    .dualRange input[type="range"]::-ms-thumb{pointer-events:auto}
+
   
 .badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 .badge{border:1px solid #ddd;border-radius:999px;padding:4px 8px;font-size:12px;background:#f8f8f8}
@@ -363,16 +376,24 @@
         <strong>Dividend sustainability (Yield vs Payout)</strong>
         
 <div class="sliderCard" style="margin:8px 0 10px 0;">
-  <div class="sliderRow">
-    <label>Yield max</label>
-    <input id="divXMax" type="range" min="0.02" max="0.60" step="0.005" value="0.15">
-    <div id="divXMaxV">15%</div>
+  <div class="sliderRow dual">
+    <label>Yield range</label>
+    <div class="dualRange" id="divXRange">
+      <input id="divXMin" type="range" min="0.00" max="0.60" step="0.005" value="0.00" aria-label="Dividend yield min">
+      <input id="divXMax" type="range" min="0.00" max="0.60" step="0.005" value="0.15" aria-label="Dividend yield max">
+    </div>
+    <div><span id="divXMinV">0%</span>–<span id="divXMaxV">15%</span></div>
   </div>
-  <div class="sliderRow">
-    <label>Payout max</label>
-    <input id="divYMax" type="range" min="0.25" max="8.00" step="0.05" value="2.00">
-    <div id="divYMaxV">200%</div>
+
+  <div class="sliderRow dual">
+    <label>Payout range</label>
+    <div class="dualRange" id="divYRange">
+      <input id="divYMin" type="range" min="0.00" max="8.00" step="0.05" value="0.00" aria-label="Payout ratio min">
+      <input id="divYMax" type="range" min="0.00" max="8.00" step="0.05" value="2.00" aria-label="Payout ratio max">
+    </div>
+    <div><span id="divYMinV">0%</span>–<span id="divYMaxV">200%</span></div>
   </div>
+
   <div class="sliderRow" style="justify-content:flex-end;">
     <button id="divReset" class="btnSmall" title="Reset the chart view">Reset view</button>
   </div>

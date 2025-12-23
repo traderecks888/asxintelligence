@@ -727,34 +727,88 @@ function getChartWindow(){
 
 
 function getDivWindow(fallback){
-  const fx = fallback && Number.isFinite(fallback.xMax) ? fallback.xMax : 0.15;
-  const fy = fallback && Number.isFinite(fallback.yMax) ? fallback.yMax : 2.0;
-  const xEl = document.getElementById("divXMax");
-  const yEl = document.getElementById("divYMax");
-  const xMax = xEl ? num(xEl.value) : fx;
-  const yMax = yEl ? num(yEl.value) : fy;
-  return {xMax: Number.isFinite(xMax) ? xMax : fx, yMax: Number.isFinite(yMax) ? yMax : fy};
+  const d = fallback || {};
+  const fxMin = (d && Number.isFinite(d.xMin)) ? d.xMin : 0.0;
+  const fxMax = (d && Number.isFinite(d.xMax)) ? d.xMax : 0.15;
+  const fyMin = (d && Number.isFinite(d.yMin)) ? d.yMin : 0.0;
+  const fyMax = (d && Number.isFinite(d.yMax)) ? d.yMax : 2.0;
+
+  const xMinEl = document.getElementById("divXMin");
+  const xMaxEl = document.getElementById("divXMax");
+  const yMinEl = document.getElementById("divYMin");
+  const yMaxEl = document.getElementById("divYMax");
+
+  let xMin = xMinEl ? num(xMinEl.value) : fxMin;
+  let xMax = xMaxEl ? num(xMaxEl.value) : fxMax;
+  let yMin = yMinEl ? num(yMinEl.value) : fyMin;
+  let yMax = yMaxEl ? num(yMaxEl.value) : fyMax;
+
+  if(!Number.isFinite(xMin)) xMin = fxMin;
+  if(!Number.isFinite(xMax)) xMax = fxMax;
+  if(!Number.isFinite(yMin)) yMin = fyMin;
+  if(!Number.isFinite(yMax)) yMax = fyMax;
+
+  // Normalize so min <= max
+  if(xMin > xMax){ const t = xMin; xMin = xMax; xMax = t; }
+  if(yMin > yMax){ const t = yMin; yMin = yMax; yMax = t; }
+
+  return {xMin, xMax, yMin, yMax};
 }
 
 function wireDividendAxisControls(){
-  const xEl = document.getElementById("divXMax");
-  const yEl = document.getElementById("divYMax");
+  const xMinEl = document.getElementById("divXMin");
+  const xMaxEl = document.getElementById("divXMax");
+  const yMinEl = document.getElementById("divYMin");
+  const yMaxEl = document.getElementById("divYMax");
   const rEl = document.getElementById("divReset");
 
-  const setLabels = ()=>{
-    const x = xEl ? num(xEl.value) : NaN;
-    const y = yEl ? num(yEl.value) : NaN;
-    if(Number.isFinite(x)) setText("divXMaxV", Math.round(x*100) + "%");
-    if(Number.isFinite(y)) setText("divYMaxV", Math.round(y*100) + "%");
+  // Defaults are used for reset and for first render.
+  if(!window.__divDefaults) window.__divDefaults = {xMin:0.0, xMax:0.15, yMin:0.0, yMax:2.0};
+
+  const normalizePair = (minEl, maxEl, prefer)=>{
+    if(!minEl || !maxEl) return;
+    let mn = num(minEl.value);
+    let mx = num(maxEl.value);
+    if(!Number.isFinite(mn) || !Number.isFinite(mx)) return;
+    if(mn > mx){
+      if(prefer === "min"){
+        mn = mx;
+        minEl.value = mn;
+      }else if(prefer === "max"){
+        mx = mn;
+        maxEl.value = mx;
+      }else{
+        const t = mn; mn = mx; mx = t;
+        minEl.value = mn; maxEl.value = mx;
+      }
+    }
   };
+
+  const setLabels = ()=>{
+    const xm = xMinEl ? num(xMinEl.value) : NaN;
+    const xM = xMaxEl ? num(xMaxEl.value) : NaN;
+    const ym = yMinEl ? num(yMinEl.value) : NaN;
+    const yM = yMaxEl ? num(yMaxEl.value) : NaN;
+
+    if(Number.isFinite(xm)) setText("divXMinV", Math.round(xm*100) + "%");
+    if(Number.isFinite(xM)) setText("divXMaxV", Math.round(xM*100) + "%");
+    if(Number.isFinite(ym)) setText("divYMinV", Math.round(ym*100) + "%");
+    if(Number.isFinite(yM)) setText("divYMaxV", Math.round(yM*100) + "%");
+  };
+
   const apply = ()=>{
+    // Keep sliders consistent.
+    normalizePair(xMinEl, xMaxEl, "min");
+    normalizePair(yMinEl, yMaxEl, "min");
+
     setLabels();
     window.__divUserSet = true;
+
     if(divChart){
-      const win = getDivWindow(window.__divDefaults || {xMax:0.15,yMax:2.0});
-      divChart.options.scales.x.min = 0;
+      const win = getDivWindow(window.__divDefaults);
+      divChart.options.scales.x.min = win.xMin;
       divChart.options.scales.x.max = win.xMax;
-      divChart.options.scales.y.min = 0;
+      divChart.options.scales.y.min = win.yMin;
       divChart.options.scales.y.max = win.yMax;
       divChart.update("none");
     }else{
@@ -762,16 +816,31 @@ function wireDividendAxisControls(){
     }
   };
 
-  if(xEl) xEl.addEventListener("input", apply);
-  if(yEl) yEl.addEventListener("input", apply);
+  if(xMinEl) xMinEl.addEventListener("input", ()=>{ normalizePair(xMinEl, xMaxEl, "min"); apply(); });
+  if(xMaxEl) xMaxEl.addEventListener("input", ()=>{ normalizePair(xMinEl, xMaxEl, "max"); apply(); });
+  if(yMinEl) yMinEl.addEventListener("input", ()=>{ normalizePair(yMinEl, yMaxEl, "min"); apply(); });
+  if(yMaxEl) yMaxEl.addEventListener("input", ()=>{ normalizePair(yMinEl, yMaxEl, "max"); apply(); });
 
   if(rEl){
     rEl.addEventListener("click", ()=>{
       window.__divUserSet = false;
-      const d = window.__divDefaults || {xMax:0.15, yMax:2.0};
-      if(xEl) xEl.value = d.xMax;
-      if(yEl) yEl.value = d.yMax;
-      apply();
+      const d = window.__divDefaults || {xMin:0.0, xMax:0.15, yMin:0.0, yMax:2.0};
+      if(xMinEl) xMinEl.value = d.xMin;
+      if(xMaxEl) xMaxEl.value = d.xMax;
+      if(yMinEl) yMinEl.value = d.yMin;
+      if(yMaxEl) yMaxEl.value = d.yMax;
+      // Don't mark as "user set" on reset; just apply defaults.
+      if(divChart){
+        const win = getDivWindow(d);
+        divChart.options.scales.x.min = win.xMin;
+        divChart.options.scales.x.max = win.xMax;
+        divChart.options.scales.y.min = win.yMin;
+        divChart.options.scales.y.max = win.yMax;
+        divChart.update("none");
+      }else{
+        rebuildCharts(filteredNow || raw || []);
+      }
+      setLabels();
     });
   }
 

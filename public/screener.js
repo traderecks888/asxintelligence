@@ -2032,6 +2032,18 @@ const RRG_COLORS = {
   Lagging: "#ef4444",
 };
 
+// White-background friendly theme (higher contrast than the dark-mode tuned defaults)
+const RRG_THEME = {
+  text: "#0f172a",          // slate-900
+  muted: "#334155",         // slate-700
+  border: "#cbd5e1",        // slate-300
+  grid: "rgba(15, 23, 42, 0.10)",
+  crosshair: "rgba(15, 23, 42, 0.35)",
+  labelFill: "rgba(15, 23, 42, 0.80)",
+  labelStroke: "rgba(255, 255, 255, 0.95)",
+  tailBorder: "rgba(15, 23, 42, 0.85)",
+};
+
 function rrgQuadrant(x, y){
   if(!Number.isFinite(x) || !Number.isFinite(y)) return "—";
   if(x >= 100 && y >= 100) return "Leading";
@@ -2100,8 +2112,8 @@ function rrgRenderLegends(series){
       const c = RRG_COLORS[st] || "#999";
       return `
         <button data-stage="${esc(st)}"
-          style="display:inline-flex;align-items:center;gap:8px;border:1px solid #ddd;border-radius:999px;padding:4px 10px;font-size:12px;background:${active?'#fff':'#f8fafc'};cursor:pointer;">
-          <span style="width:10px;height:10px;border-radius:999px;background:${c};display:inline-block;"></span>
+          style="display:inline-flex;align-items:center;gap:8px;border:1px solid ${RRG_THEME.border};border-radius:999px;padding:5px 11px;font-size:12px;background:${active?'#f1f5f9':'#fff'};color:${RRG_THEME.text};cursor:pointer;box-shadow:0 1px 0 rgba(15,23,42,0.05);">
+          <span style="width:10px;height:10px;border-radius:999px;background:${c};display:inline-block;border:1px solid rgba(15,23,42,0.25);"></span>
           <span style="font-weight:700">${esc(st)}</span>
           <span style="color:#64748b">${counts[st]||0}</span>
         </button>
@@ -2126,8 +2138,8 @@ function rrgRenderLegends(series){
     const c = RRG_COLORS[s.quad] || "#999";
     return `
       <button data-name="${esc(s.name)}"
-        style="display:inline-flex;align-items:center;gap:8px;border:1px solid #ddd;border-radius:10px;padding:4px 10px;font-size:12px;background:${active?'#fff':'#f8fafc'};cursor:pointer;">
-        <span style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block;"></span>
+        style="display:inline-flex;align-items:center;gap:8px;border:1px solid ${RRG_THEME.border};border-radius:10px;padding:6px 10px;font-size:12px;background:${active?'#f1f5f9':'#fff'};color:${RRG_THEME.text};cursor:pointer;box-shadow:0 1px 0 rgba(15,23,42,0.05);">
+        <span style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block;border:1px solid rgba(15,23,42,0.25);"></span>
         <span style="font-weight:700">${esc(s.name)}</span>
       </button>
     `;
@@ -2242,11 +2254,27 @@ function renderRRG(){
       borderWidth: 2,
       pointRadius: (ctx)=> {
         const n = ctx.dataset.data.length;
-        return (ctx.dataIndex === n-1) ? 6 : 2.5;
+        return (ctx.dataIndex === n-1) ? 7 : 4;
       },
       pointHoverRadius: (ctx)=> {
         const n = ctx.dataset.data.length;
-        return (ctx.dataIndex === n-1) ? 10 : 6;
+        return (ctx.dataIndex === n-1) ? 11 : 8;
+      },
+      pointBorderWidth: (ctx)=> {
+        const n = ctx.dataset.data.length;
+        return (ctx.dataIndex === n-1) ? 3 : 2;
+      },
+      pointBackgroundColor: (ctx)=> {
+        const n = ctx.dataset.data.length;
+        // Head point: white fill with colored ring
+        if(ctx.dataIndex === n-1) return "#ffffff";
+        return color;
+      },
+      pointBorderColor: (ctx)=> {
+        const n = ctx.dataset.data.length;
+        // Head point ring = sector color; tail points get a dark outline for contrast
+        if(ctx.dataIndex === n-1) return color;
+        return RRG_THEME.tailBorder;
       },
     };
   });
@@ -2280,7 +2308,7 @@ function renderRRG(){
       ctx.save();
       ctx.setLineDash([4,4]);
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.strokeStyle = RRG_THEME.crosshair;
       ctx.beginPath();
       ctx.moveTo(x100, chartArea.top);
       ctx.lineTo(x100, chartArea.bottom);
@@ -2291,8 +2319,8 @@ function renderRRG(){
 
       ctx.save();
       ctx.font = "700 14px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.fillStyle = RRG_THEME.labelFill;
+      ctx.strokeStyle = RRG_THEME.labelStroke;
       ctx.lineWidth = 3;
 
       function label(txt, x, y, align){
@@ -2360,8 +2388,22 @@ function renderRRG(){
         }
       },
       scales: {
-        x: { title: {display:true, text:"RS-Ratio"}, min: dom.x[0], max: dom.x[1] },
-        y: { title: {display:true, text:"RS-Momentum"}, min: dom.y[0], max: dom.y[1] }
+        x: {
+          title: {display:true, text:"RS-Ratio", color: RRG_THEME.text},
+          ticks: { color: RRG_THEME.muted },
+          grid: { color: RRG_THEME.grid },
+          border: { color: RRG_THEME.border },
+          min: dom.x[0],
+          max: dom.x[1]
+        },
+        y: {
+          title: {display:true, text:"RS-Momentum", color: RRG_THEME.text},
+          ticks: { color: RRG_THEME.muted },
+          grid: { color: RRG_THEME.grid },
+          border: { color: RRG_THEME.border },
+          min: dom.y[0],
+          max: dom.y[1]
+        }
       },
       onClick: (evt, elements, chart) => {
         const pts = chart.getElementsAtEventForMode(evt, "nearest", {intersect:true}, true);

@@ -1624,6 +1624,11 @@ def fetch_one_technicals(
 
 # --------------------------------------------------------------------------------------
 # RRG (Relative Rotation Graph) exports (sector indices via Yahoo)
+# - Ports the tilescreener reference behavior:
+#   - Algo: JdK + Simple
+#   - TF: daily/weekly/monthly (UI-selectable; we export a bundle)
+#   - Tail controlled in UI (we export longer trails)
+# - Uses yf.download in bulk for robustness/speed (12 tickers total)
 # --------------------------------------------------------------------------------------
 
 RRG_SECTORS = [
@@ -1654,20 +1659,70 @@ def ema_series(values: List[float], period: int) -> List[float]:
     return out
 
 
-def rrg_series_jdk(series: List[Dict[str, Any]], bench: List[Dict[str, Any]], short: int = 10, long: int = 30, momN: int = 10) -> List[Dict[str, Any]]:
+def _to_day_key_ms(t_ms: int) -> str:
+    return datetime.fromtimestamp(int(t_ms) / 1000, tz=ZoneInfo("UTC")).date().isoformat()
+
+
+def rrg_series_simple(series: List[Dict[str, Any]], bench: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A simple RRG approximation (ported from tilescreener behavior).
+
+    RS = sector/bench
+    RS-Ratio = 100 * RS / SMA10(RS)
+    RS-Mom   = 100 + %chg(RS over 10 bars)
+    """
+    map_b = {_to_day_key_ms(int(p["t"])): p["v"] for p in bench if p.get("v") is not None}
+    rs: List[Dict[str, Any]] = []
+    for p in series:
+        if p.get("v") is None:
+            continue
+        key = _to_day_key_ms(int(p["t"]))
+        bv = map_b.get(key)
+        if bv is None or bv == 0:
+            continue
+        rs.append({"t": int(p["t"]), "v": float(p["v"]) / float(bv)})
+
+    if len(rs) < 15:
+        return []
+
+    trail: List[Dict[str, Any]] = []
+    for i in range(10, len(rs)):
+        window = [x["v"] for x in rs[max(0, i - 10): i + 1]]
+        avg = sum(window) / len(window) if window else rs[i]["v"]
+        ratio = (rs[i]["v"] / avg) * 100.0 if avg else 100.0
+        prev = rs[i - 10]["v"]
+        mom_pct = ((rs[i]["v"] / prev) - 1.0) * 100.0 if prev else 0.0
+        momentum = 100.0 + mom_pct
+        trail.append({"t": rs[i]["t"], "x": float(ratio), "y": float(momentum)})
+
+    return trail
+
+
+def rrg_series_jdk(
+    series: List[Dict[str, Any]],
+    bench: List[Dict[str, Any]],
+    short: int = 10,
+    long: int = 30,
+    momN: int = 10,
+) -> List[Dict[str, Any]]:
+    """JdK-style RS-Ratio / RS-Momentum.
+
+    RS = sector/bench
+    RS-Ratio = 100 * EMA_short(RS) / EMA_long(RS)
+    RS-Mom   = 100 + 100 * ((RS-Ratio / RS-Ratio[momN]) - 1)
+    """
     short = max(2, min(60, int(short)))
     long = max(short + 1, min(120, int(long)))
     momN = max(2, min(60, int(momN)))
 
-    # align by date string (cheap + robust)
-    mapB = {datetime.fromtimestamp(int(p["t"]) / 1000, tz=ZoneInfo("UTC")).date().isoformat(): p["v"] for p in bench if p.get("v") is not None}
+    map_b = {_to_day_key_ms(int(p["t"])): p["v"] for p in bench if p.get("v") is not None}
+
     ts: List[int] = []
     rs_vals: List[float] = []
     for p in series:
         if p.get("v") is None:
             continue
-        key = datetime.fromtimestamp(int(p["t"]) / 1000, tz=ZoneInfo("UTC")).date().isoformat()
-        bv = mapB.get(key)
+        key = _to_day_key_ms(int(p["t"]))
+        bv = map_b.get(key)
         if bv is None or bv == 0:
             continue
         ts.append(int(p["t"]))
@@ -1684,65 +1739,123 @@ def rrg_series_jdk(series: List[Dict[str, Any]], bench: List[Dict[str, Any]], sh
     for i in range(momN, len(rs_ratio)):
         x = float(rs_ratio[i])
         prev = float(rs_ratio[i - momN])
-        y = 100.0 + 100.0 * ((x / prev) - 1.0) if prev != 0 else np.nan
-        trail.append({"t": ts[i], "x": x, "y": y})
-    return trail[-15:]
+        y = 100.0 + 100.0 * ((x / prev) - 1.0) if prev else 100.0
+        trail.append({"t": ts[i], "x": x, "y": float(y)})
+
+    return trail
 
 
-def fetch_series(symbol: str, range_: str, interval: str) -> List[Dict[str, Any]]:
-    hist = fetch_history(symbol, range_, interval)
-    if hist.empty or "Close" not in hist.columns:
-        return []
-    close = pd.to_numeric(hist["Close"], errors="coerce").dropna()
-    if close.empty:
-        return []
-    # yfinance history index is Timestamp; convert to ms epoch
-    out = []
-    for ts, v in close.items():
-        try:
-            t_ms = int(pd.Timestamp(ts).to_pydatetime().replace(tzinfo=ZoneInfo("UTC")).timestamp() * 1000)
-            out.append({"t": t_ms, "v": float(v)})
-        except Exception:
+def _bulk_fetch_close_series(symbols: List[str], period: str, interval: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Bulk fetch close series via yf.download. Returns {symbol: [{t(ms), v(close)}...]}."""
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    try:
+        df = yf.download(
+            tickers=" ".join(symbols),
+            period=period,
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+            threads=True,
+        )
+    except Exception:
+        return out
+
+    frames = _split_download_frame(df, symbols)
+    for sym, fr in frames.items():
+        if fr is None or fr.empty or "Close" not in fr.columns:
             continue
-    out.sort(key=lambda p: p["t"])
+        close = pd.to_numeric(fr["Close"], errors="coerce").dropna()
+        pts: List[Dict[str, Any]] = []
+        for ts, v in close.items():
+            try:
+                t_ms = int(pd.Timestamp(ts).to_pydatetime().replace(tzinfo=ZoneInfo("UTC")).timestamp() * 1000)
+                pts.append({"t": t_ms, "v": float(v)})
+            except Exception:
+                continue
+        pts.sort(key=lambda p: p["t"])
+        if pts:
+            out[sym] = pts
     return out
 
 
-def write_rrg_sectors(public_dir: Path, tf: str = "weekly", algo: str = "jdk", short: int = 10, long: int = 30, momN: int = 10, bench: str = "^AXJO") -> Optional[Path]:
-    tf = (tf or "weekly").lower()
-    if tf not in ("daily", "weekly", "monthly"):
-        tf = "weekly"
-    range_ = "6mo" if tf == "daily" else "2y"
-    interval = "1d" if tf == "daily" else ("1wk" if tf == "weekly" else "1mo")
+def write_rrg_sectors(public_dir: Path, tf: str = "all", bench: str = "^AXJO") -> Optional[Path]:
+    """Write public_dir/rrg_sectors.json, bundling TFs and algos.
 
-    bench_series = fetch_series(bench, range_, interval)
-    if not bench_series:
-        return None
+    JSON shape:
+      {
+        at, bench, sectors: [...],
+        data: {
+          weekly: {meta, jdk:{short,long,momN,series:[...]}, simple:{series:[...]}},
+          ...
+        }
+      }
+    """
+    tf = (tf or "all").lower()
+    tfs = ["daily", "weekly", "monthly"] if tf == "all" else [tf]
+    tfs = [t for t in tfs if t in ("daily", "weekly", "monthly")]
+    if not tfs:
+        tfs = ["weekly"]
 
-    series_out = []
-    points_out = []
-    for s in RRG_SECTORS:
-        ser = fetch_series(s["symbol"], range_, interval)
-        if not ser:
-            series_out.append({"symbol": s["symbol"], "name": s["name"], "latest": None, "trail": []})
-            continue
-        trail = rrg_series_jdk(ser, bench_series, short=short, long=long, momN=momN) if algo == "jdk" else []
-        if trail:
-            last = trail[-1]
-            series_out.append({"symbol": s["symbol"], "name": s["name"], "latest": last, "trail": trail})
-            points_out.append({"symbol": s["symbol"], "name": s["name"], "x": last["x"], "y": last["y"]})
-        else:
-            series_out.append({"symbol": s["symbol"], "name": s["name"], "latest": None, "trail": []})
-
-    payload = {
+    symbols = [bench] + [s["symbol"] for s in RRG_SECTORS]
+    payload: Dict[str, Any] = {
         "at": datetime.now(ZoneInfo("UTC")).isoformat(timespec="seconds"),
         "bench": bench,
-        "tf": tf,
-        "algo": algo,
-        "series": series_out,
-        "points": points_out,
+        "sectors": RRG_SECTORS,
+        "data": {},
     }
+
+    for tf_ in tfs:
+        period = "6mo" if tf_ == "daily" else ("2y" if tf_ == "weekly" else "5y")
+        interval = "1d" if tf_ == "daily" else ("1wk" if tf_ == "weekly" else "1mo")
+
+        ser_map = _bulk_fetch_close_series(symbols, period=period, interval=interval)
+        bench_series = ser_map.get(bench, [])
+
+        payload["data"][tf_] = {"meta": {"period": period, "interval": interval}}
+
+        if not bench_series:
+            payload["data"][tf_]["error"] = f"Missing benchmark history for {bench} (period={period}, interval={interval})"
+            payload["data"][tf_]["jdk"] = {"series": []}
+            payload["data"][tf_]["simple"] = {"series": []}
+            continue
+
+        # Defaults aligned to typical JdK usage; tweaked per TF for stability
+        if tf_ == "daily":
+            short, long, momN = 7, 14, 7
+        elif tf_ == "weekly":
+            short, long, momN = 10, 30, 10
+        else:
+            short, long, momN = 5, 10, 5
+
+        out_jdk: List[Dict[str, Any]] = []
+        out_simple: List[Dict[str, Any]] = []
+
+        for s in RRG_SECTORS:
+            sec_series = ser_map.get(s["symbol"], [])
+            if not sec_series:
+                out_jdk.append({"symbol": s["symbol"], "name": s["name"], "latest": None, "trail": []})
+                out_simple.append({"symbol": s["symbol"], "name": s["name"], "latest": None, "trail": []})
+                continue
+
+            trail_jdk = rrg_series_jdk(sec_series, bench_series, short=short, long=long, momN=momN)
+            trail_simple = rrg_series_simple(sec_series, bench_series)
+
+            # Keep file size reasonable; UI controls tail anyway
+            trail_jdk = trail_jdk[-80:]
+            trail_simple = trail_simple[-80:]
+
+            last_jdk = trail_jdk[-1] if trail_jdk else None
+            last_simple = trail_simple[-1] if trail_simple else None
+
+            out_jdk.append({"symbol": s["symbol"], "name": s["name"], "latest": last_jdk, "trail": trail_jdk})
+            out_simple.append({"symbol": s["symbol"], "name": s["name"], "latest": last_simple, "trail": trail_simple})
+
+        payload["data"][tf_]["jdk"] = {"short": short, "long": long, "momN": momN, "series": out_jdk}
+        payload["data"][tf_]["simple"] = {"series": out_simple}
+
     out_path = public_dir / "rrg_sectors.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
 
@@ -1775,7 +1888,7 @@ def main() -> None:
     ap.add_argument("--update_mode", default="full", choices=["full", "technicals"], help="full = refresh fundamentals+technicals; technicals = refresh only technicals/price using prior output")
     ap.add_argument("--no_long_tf", action="store_true", help="Skip weekly/monthly technical overlays (faster)")
     ap.add_argument("--generate_rrg", action="store_true", help="Write RRG sector dataset to public_dir (rrg_sectors.json)")
-    ap.add_argument("--rrg_tf", default="weekly", choices=["daily","weekly","monthly"], help="RRG timeframe (default weekly)")
+    ap.add_argument("--rrg_tf", default="all", choices=["daily","weekly","monthly","all"], help="RRG timeframe bundle to export (default all)")
     args = ap.parse_args()
 
     scraper_path = Path(args.scraper).resolve()
@@ -2139,7 +2252,7 @@ def main() -> None:
     # RRG sector dataset (used by the web UI)
     try:
         if args.generate_rrg:
-            write_rrg_sectors(public_dir, tf=args.rrg_tf, algo="jdk", short=10, long=30, momN=10, bench=args.benchmark)
+            write_rrg_sectors(public_dir, tf=args.rrg_tf, bench=args.benchmark)
     except Exception as e:
         print(f"[warn] RRG generation failed: {e}")
 

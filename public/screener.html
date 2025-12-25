@@ -433,21 +433,37 @@
     
       
     <div class="card" style="margin-top:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-        <strong>Sector RRG (Relative Rotation vs ASX 200)</strong>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <select id="rrgTf" title="RRG timeframe">
-            <option value="weekly" selected>Weekly</option>
-            <option value="daily">Daily</option>
-            <option value="monthly">Monthly</option>
-          </select>
-          <button id="rrgReload" class="secondary" title="Reload RRG data">Reload</button>
-        </div>
-      </div>
-      <canvas id="rrg" style="height:360px;"></canvas>
-      <small>Baseline is (100,100). Leading = x&gt;100 &amp; y&gt;100. Improving = x&lt;100 &amp; y&gt;100. Weakening = x&gt;100 &amp; y&lt;100. Lagging = x&lt;100 &amp; y&lt;100.</small>
-      <div id="rrgTable" style="margin-top:10px;overflow:auto;"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+    <strong>Sector RRG (Relative Rotation vs ASX 200)</strong>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select id="rrgTf" title="RRG timeframe">
+        <option value="weekly" selected>Weekly</option>
+        <option value="daily">Daily</option>
+        <option value="monthly">Monthly</option>
+      </select>
+
+      <select id="rrgAlgo" title="RRG algorithm">
+        <option value="jdk" selected>JdK</option>
+        <option value="simple">Simple</option>
+      </select>
+
+      <label style="display:inline-flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;color:#666;">Tail</span>
+        <input id="rrgTail" type="range" min="5" max="20" step="1" value="16" />
+        <span id="rrgTailV" style="font-size:12px;color:#666;width:28px;text-align:right;">16</span>
+      </label>
+
+      <button id="rrgFit" class="secondary" title="Fit axes to visible points">Fit</button>
+      <button id="rrgReset" class="secondary" title="Reset axes around 100/100">Reset</button>
+      <button id="rrgReload" class="secondary" title="Reload RRG data">Reload</button>
     </div>
+  </div>
+
+  <canvas id="rrg" style="height:360px;"></canvas>
+  <div id="rrgStageLegend" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+  <div id="rrgLegend" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+  <div id="rrgTable" style="margin-top:10px;overflow:auto;"></div>
+</div>
 
 </details>
 

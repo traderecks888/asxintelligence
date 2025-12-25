@@ -82,7 +82,7 @@ jobs:
       - name: Run full refresh (fundamentals + technicals)
         if: steps.holiday.outputs.skip != 'true'
         run: |
-          python asx_intrinsic_valuations_export.py --resume --update_mode full --generate_rrg --rrg_tf weekly --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
+          python asx_intrinsic_valuations_export.py --resume --update_mode full --generate_rrg --rrg_tf all --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
 
       - name: Smoke check outputs exist
         if: steps.holiday.outputs.skip != 'true'

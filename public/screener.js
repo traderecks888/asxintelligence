@@ -1733,7 +1733,10 @@ document.getElementById("preset").addEventListener("change", () => {
   const rrgBtn = document.getElementById("rrgReload");
   if(rrgBtn) rrgBtn.onclick = () => loadRRG();
   const rrgTf = document.getElementById("rrgTf");
-  if(rrgTf) rrgTf.onchange = () => loadRRG();
+  if(rrgTf) rrgTf.onchange = () => renderRRG();
+
+  // Initial load
+  loadRRG();
 }
 
 function applyFilters(){
@@ -2003,37 +2006,163 @@ function rebuildCharts(rows){
 
 
 // -------------------------
-// RRG (Relative Rotation Graph)
+// RRG (Relative Rotation Graph) — ported features from tilescreener reference
+// - Algo toggle: JdK + Simple
+// - TF toggle: daily/weekly/monthly (static bundle in rrg_sectors.json)
+// - Tail slider (5–20)
+// - Quadrant shading + labels
+// - Head labels
+// - Click head point to isolate; click again to restore
 // -------------------------
-function quadrantName(x, y){
+
+let __rrgBundle = null;
+let __rrgState = {
+  tf: "weekly",
+  algo: "jdk",
+  tail: 16,
+  selected: null,     // sector name
+  stageFilter: null,  // "Leading"|"Improving"|"Weakening"|"Lagging"|null
+  autoFit: true,
+};
+
+const RRG_COLORS = {
+  Improving: "#3b82f6",
+  Leading: "#22c55e",
+  Weakening: "#f59e0b",
+  Lagging: "#ef4444",
+};
+
+function rrgQuadrant(x, y){
   if(!Number.isFinite(x) || !Number.isFinite(y)) return "—";
-  const lead = x >= 100 && y >= 100;
-  const weak = x >= 100 && y < 100;
-  const impr = x < 100 && y >= 100;
-  const lag  = x < 100 && y < 100;
-  if(lead) return "Leading";
-  if(weak) return "Weakening";
-  if(impr) return "Improving";
-  if(lag)  return "Lagging";
-  return "—";
+  if(x >= 100 && y >= 100) return "Leading";
+  if(x >= 100 && y < 100)  return "Weakening";
+  if(x < 100 && y < 100)   return "Lagging";
+  return "Improving";
 }
 
-function renderRrgTable(payload){
-  const el = document.getElementById("rrgTable");
+function rrgGetView(bundle, tf, algo){
+  const block = bundle?.data?.[tf]?.[algo];
+  const meta = bundle?.data?.[tf]?.meta || {};
+  const err  = bundle?.data?.[tf]?.error || null;
+  const series = block?.series || [];
+  return { series, meta, err };
+}
+
+function rrgBuildSeriesForChart(seriesIn){
+  const out = [];
+  for(const s of (seriesIn || [])){
+    const trail = Array.isArray(s.trail) ? s.trail.filter(p => Number.isFinite(p.x) && Number.isFinite(p.y)) : [];
+    const latest = (s.latest && Number.isFinite(s.latest.x) && Number.isFinite(s.latest.y)) ? s.latest : (trail.length ? trail[trail.length-1] : null);
+    if(!latest) continue;
+    out.push({
+      name: s.name || s.symbol || "",
+      symbol: s.symbol || "",
+      trail,
+      latest,
+      quad: rrgQuadrant(latest.x, latest.y),
+    });
+  }
+  out.sort((a,b)=> (b.latest.x - a.latest.x));
+  return out;
+}
+
+function rrgAutoDomain(series){
+  const xs = [];
+  const ys = [];
+  for(const s of series){
+    for(const p of (s.trail || [])){
+      xs.push(p.x); ys.push(p.y);
+    }
+    xs.push(s.latest.x); ys.push(s.latest.y);
+  }
+  if(xs.length < 1 || ys.length < 1){
+    return { x:[80,120], y:[80,120] };
+  }
+  const lowX = Math.min(...xs), highX = Math.max(...xs);
+  const lowY = Math.min(...ys), highY = Math.max(...ys);
+  const dx = Math.max(Math.abs(highX - 100), Math.abs(100 - lowX));
+  const dy = Math.max(Math.abs(highY - 100), Math.abs(100 - lowY));
+  const pad = 0.10;
+  const rx = Math.max(4, dx * (1+pad));
+  const ry = Math.max(4, dy * (1+pad));
+  return { x:[100-rx, 100+rx], y:[100-ry, 100+ry] };
+}
+
+function rrgRenderLegends(series){
+  const stageEl = document.getElementById("rrgStageLegend");
+  if(stageEl){
+    const counts = {Leading:0, Improving:0, Weakening:0, Lagging:0};
+    for(const s of series) counts[s.quad] = (counts[s.quad]||0) + 1;
+
+    const stages = ["Leading","Improving","Weakening","Lagging"];
+    stageEl.innerHTML = stages.map(st=>{
+      const active = (__rrgState.stageFilter === st);
+      const c = RRG_COLORS[st] || "#999";
+      return `
+        <button data-stage="${esc(st)}"
+          style="display:inline-flex;align-items:center;gap:8px;border:1px solid #ddd;border-radius:999px;padding:4px 10px;font-size:12px;background:${active?'#fff':'#f8fafc'};cursor:pointer;">
+          <span style="width:10px;height:10px;border-radius:999px;background:${c};display:inline-block;"></span>
+          <span style="font-weight:700">${esc(st)}</span>
+          <span style="color:#64748b">${counts[st]||0}</span>
+        </button>
+      `;
+    }).join("") + ( __rrgState.stageFilter ? `<button id="rrgStageClear" style="border:none;background:transparent;color:#64748b;text-decoration:underline;cursor:pointer;font-size:12px;">Clear</button>` : "");
+
+    stageEl.querySelectorAll("button[data-stage]").forEach(btn=>{
+      btn.onclick = () => {
+        const st = btn.getAttribute("data-stage");
+        __rrgState.stageFilter = (__rrgState.stageFilter === st) ? null : st;
+        renderRRG();
+      };
+    });
+    const clr = document.getElementById("rrgStageClear");
+    if(clr) clr.onclick = () => { __rrgState.stageFilter = null; renderRRG(); };
+  }
+
+  const el = document.getElementById("rrgLegend");
   if(!el) return;
-  const pts = (payload && payload.points) ? payload.points.slice() : [];
-  pts.sort((a,b)=> (b.y - a.y) || (b.x - a.x));
-  const rows = pts.map(p=>{
-    const q = quadrantName(p.x, p.y);
-    const x = Number.isFinite(p.x) ? p.x.toFixed(1) : "—";
-    const y = Number.isFinite(p.y) ? p.y.toFixed(1) : "—";
-    return `<tr><td>${esc(p.name||p.symbol||"")}</td><td>${esc(p.symbol||"")}</td><td>${x}</td><td>${y}</td><td>${q}</td></tr>`;
+  el.innerHTML = series.map(s=>{
+    const active = (__rrgState.selected === s.name);
+    const c = RRG_COLORS[s.quad] || "#999";
+    return `
+      <button data-name="${esc(s.name)}"
+        style="display:inline-flex;align-items:center;gap:8px;border:1px solid #ddd;border-radius:10px;padding:4px 10px;font-size:12px;background:${active?'#fff':'#f8fafc'};cursor:pointer;">
+        <span style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block;"></span>
+        <span style="font-weight:700">${esc(s.name)}</span>
+      </button>
+    `;
   }).join("");
 
-  const note = (payload && payload.at) ? `Updated: ${esc(formatWhen(payload.at))} • Bench: ${esc(payload.bench||"")} • TF: ${esc(payload.tf||"")}` : "";
+  el.querySelectorAll("button[data-name]").forEach(btn=>{
+    btn.onclick = () => {
+      const nm = btn.getAttribute("data-name");
+      __rrgState.selected = (__rrgState.selected === nm) ? null : nm;
+      renderRRG();
+    };
+  });
+}
+
+function rrgRenderTable(series, metaNote){
+  const el = document.getElementById("rrgTable");
+  if(!el) return;
+
+  const rows = series.slice().sort((a,b)=> (b.latest.y - a.latest.y) || (b.latest.x - a.latest.x))
+    .map(s=>{
+      const x = Number.isFinite(s.latest.x) ? s.latest.x.toFixed(2) : "—";
+      const y = Number.isFinite(s.latest.y) ? s.latest.y.toFixed(2) : "—";
+      return `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(s.name)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(s.symbol||"")}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;">${x}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;">${y}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(s.quad)}</td>
+      </tr>`;
+    }).join("");
+
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-      <small>${note}</small>
+      <small>${esc(metaNote || "")}</small>
+      ${__rrgState.selected ? `<small><strong>Selected:</strong> ${esc(__rrgState.selected)}</small>` : `<small style="color:#666;">Click a head point or legend to isolate</small>`}
     </div>
     <div style="overflow:auto;">
       <table style="border-collapse:collapse;width:100%;min-width:520px;font-size:12px;">
@@ -2046,46 +2175,108 @@ function renderRrgTable(payload){
             <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px 8px;">Quadrant</th>
           </tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="5" style="padding:8px;"><small>No RRG data yet.</small></td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="5" style="padding:8px;"><small>No RRG data for this view yet.</small></td></tr>`}</tbody>
       </table>
     </div>
   `;
 }
 
-function renderRRG(payload){
+function renderRRG(){
   const canvas = document.getElementById("rrg");
   if(!canvas) return;
-  const pts = (payload && payload.points) ? payload.points : [];
-  const series = (payload && payload.series) ? payload.series : [];
 
-  // Build trail datasets (one per sector), plus a single latest-points dataset for performance.
-  const trailDatasets = series
-    .filter(s => s && Array.isArray(s.trail) && s.trail.length)
-    .map(s => ({
+  const tfSel = document.getElementById("rrgTf");
+  const algoSel = document.getElementById("rrgAlgo");
+  const tailEl = document.getElementById("rrgTail");
+  const tailV  = document.getElementById("rrgTailV");
+
+  const tf = tfSel ? tfSel.value : __rrgState.tf;
+  const algo = algoSel ? algoSel.value : __rrgState.algo;
+  const tail = tailEl ? Number(tailEl.value) : __rrgState.tail;
+
+  __rrgState.tf = tf;
+  __rrgState.algo = algo;
+  __rrgState.tail = tail;
+  if(tailV) tailV.textContent = String(tail);
+
+  const { series: raw, meta, err } = rrgGetView(__rrgBundle, tf, algo);
+
+  if(err){
+    const el = document.getElementById("rrgTable");
+    if(el) el.innerHTML = `<small>RRG data error: <code>${esc(err)}</code></small>`;
+  }
+
+  let series = rrgBuildSeriesForChart(raw);
+
+  if(__rrgState.stageFilter){
+    series = series.filter(s => s.quad === __rrgState.stageFilter);
+  }
+
+  if(__rrgState.selected){
+    series = series.filter(s => s.name === __rrgState.selected);
+  }
+
+  for(const s of series){
+    s.trail = (s.trail || []).slice(-Math.max(5, Math.min(20, tail)));
+    if(s.trail.length && (s.latest.t !== s.trail[s.trail.length-1].t)){
+      s.trail.push(s.latest);
+    }
+  }
+
+  const dom = __rrgState.autoFit ? rrgAutoDomain(series) : (rrgChart ? {x:[rrgChart.options.scales.x.min, rrgChart.options.scales.x.max], y:[rrgChart.options.scales.y.min, rrgChart.options.scales.y.max]} : {x:[80,120], y:[80,120]});
+
+  const datasets = series.map(s=>{
+    const color = RRG_COLORS[s.quad] || "#444";
+    return {
       type: "line",
-      label: `${s.name || s.symbol} trail`,
-      data: s.trail.map(p => ({x: p.x, y: p.y})),
+      label: s.name,
       parsing: false,
-      pointRadius: 0,
-      borderWidth: 1,
+      data: (s.trail || []).map((p, idx)=>({
+        x: p.x, y: p.y, t: p.t, name: s.name, symbol: s.symbol,
+        __last: idx === (s.trail.length - 1)
+      })),
+      showLine: true,
       tension: 0.15,
-    }));
-
-  const pointDataset = {
-    type: "scatter",
-    label: "Latest",
-    data: pts.map(p => ({x: p.x, y: p.y, name: p.name, symbol: p.symbol})),
-    parsing: false,
-    pointRadius: 4,
-  };
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 2,
+      pointRadius: (ctx)=> {
+        const n = ctx.dataset.data.length;
+        return (ctx.dataIndex === n-1) ? 6 : 2.5;
+      },
+      pointHoverRadius: (ctx)=> {
+        const n = ctx.dataset.data.length;
+        return (ctx.dataIndex === n-1) ? 10 : 6;
+      },
+    };
+  });
 
   const pluginQuadrants = {
-    id: "rrgQuadrants",
+    id: "rrgQuadrantsFull",
+    beforeDatasetsDraw(chart){
+      const {ctx, chartArea, scales} = chart;
+      if(!chartArea) return;
+      const x100 = scales.x.getPixelForValue(100);
+      const y100 = scales.y.getPixelForValue(100);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(chartArea.left, chartArea.top, chartArea.right-chartArea.left, chartArea.bottom-chartArea.top);
+      ctx.clip();
+
+      const fill = (x0,y0,w,h,c)=>{ ctx.fillStyle=c; ctx.fillRect(x0,y0,w,h); };
+      fill(chartArea.left, chartArea.top, x100-chartArea.left, y100-chartArea.top, "rgba(59,130,246,0.10)"); // Improving
+      fill(x100, chartArea.top, chartArea.right-x100, y100-chartArea.top, "rgba(34,197,94,0.10)"); // Leading
+      fill(x100, y100, chartArea.right-x100, chartArea.bottom-y100, "rgba(245,158,11,0.10)"); // Weakening
+      fill(chartArea.left, y100, x100-chartArea.left, chartArea.bottom-y100, "rgba(239,68,68,0.10)"); // Lagging
+      ctx.restore();
+    },
     afterDraw(chart){
       const {ctx, chartArea, scales} = chart;
       if(!chartArea) return;
       const x100 = scales.x.getPixelForValue(100);
       const y100 = scales.y.getPixelForValue(100);
+
       ctx.save();
       ctx.setLineDash([4,4]);
       ctx.lineWidth = 1;
@@ -2097,14 +2288,62 @@ function renderRRG(payload){
       ctx.lineTo(chartArea.right, y100);
       ctx.stroke();
       ctx.restore();
+
+      ctx.save();
+      ctx.font = "700 14px system-ui,-apple-system,Segoe UI,Roboto";
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.lineWidth = 3;
+
+      function label(txt, x, y, align){
+        ctx.textAlign = align || "left";
+        ctx.strokeText(txt, x, y);
+        ctx.fillText(txt, x, y);
+      }
+      label("Improving", chartArea.left + 10, chartArea.top + 18, "left");
+      label("Leading",   chartArea.right - 10, chartArea.top + 18, "right");
+      label("Lagging",   chartArea.left + 10, chartArea.bottom - 10, "left");
+      label("Weakening", chartArea.right - 10, chartArea.bottom - 10, "right");
+      ctx.restore();
+    }
+  };
+
+  const pluginHeadLabels = {
+    id: "rrgHeadLabels",
+    afterDatasetsDraw(chart){
+      const {ctx} = chart;
+      ctx.save();
+      ctx.font = "600 13px system-ui,-apple-system,Segoe UI,Roboto";
+      ctx.fillStyle = "rgba(15,23,42,0.95)";
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 3;
+      for(let i=0;i<chart.data.datasets.length;i++){
+        const ds = chart.data.datasets[i];
+        if(ds.hidden) continue;
+        const data = ds.data || [];
+        if(!data.length) continue;
+        const meta = chart.getDatasetMeta(i);
+        const el = meta.data?.[data.length-1];
+        if(!el) continue;
+        const x = el.x + 8;
+        const y = el.y - 10;
+        const txt = ds.label || "";
+        if(__rrgState.selected && txt !== __rrgState.selected) continue;
+        ctx.strokeText(txt, x, y);
+        ctx.fillText(txt, x, y);
+      }
+      ctx.restore();
     }
   };
 
   if(rrgChart) rrgChart.destroy();
+
   rrgChart = new Chart(canvas, {
-    data: { datasets: [...trailDatasets, pointDataset] },
+    data: { datasets },
     options: {
       maintainAspectRatio: false,
+      animation: false,
+      interaction:{ mode:"nearest", intersect:true },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -2112,41 +2351,109 @@ function renderRRG(payload){
             label: (ctx) => {
               const p = ctx.raw || {};
               const nm = p.name || ctx.dataset.label || "";
-              const x = Number.isFinite(p.x) ? p.x.toFixed(1) : "—";
-              const y = Number.isFinite(p.y) ? p.y.toFixed(1) : "—";
-              const q = quadrantName(p.x, p.y);
+              const x = Number.isFinite(p.x) ? p.x.toFixed(2) : "—";
+              const y = Number.isFinite(p.y) ? p.y.toFixed(2) : "—";
+              const q = rrgQuadrant(p.x, p.y);
               return `${nm}: ${x}, ${y} (${q})`;
             }
           }
         }
       },
       scales: {
-        x: { title: {display:true, text:"RS-Ratio"}, suggestedMin: 85, suggestedMax: 115 },
-        y: { title: {display:true, text:"RS-Momentum"}, suggestedMin: 85, suggestedMax: 115 }
+        x: { title: {display:true, text:"RS-Ratio"}, min: dom.x[0], max: dom.x[1] },
+        y: { title: {display:true, text:"RS-Momentum"}, min: dom.y[0], max: dom.y[1] }
+      },
+      onClick: (evt, elements, chart) => {
+        const pts = chart.getElementsAtEventForMode(evt, "nearest", {intersect:true}, true);
+        if(!pts.length) return;
+        const hit = pts[0];
+        const dsIndex = hit.datasetIndex;
+        const ds = chart.data.datasets[dsIndex];
+        // Only toggle when clicking the "head" (last point) to match the reference UX.
+        if(hit.index !== (ds.data.length - 1)) return;
+        const name = ds.label;
+        __rrgState.selected = (__rrgState.selected === name) ? null : name;
+        renderRRG();
       }
     },
-    plugins: [pluginQuadrants]
+    plugins: [pluginQuadrants, pluginHeadLabels]
   });
 
-  renderRrgTable(payload);
+  canvas.onwheel = (e) => {
+    e.preventDefault();
+    if(!rrgChart) return;
+    const zoomIn = e.deltaY < 0;
+    const factor = zoomIn ? 0.9 : 1.1;
+    const x0 = rrgChart.options.scales.x.min, x1 = rrgChart.options.scales.x.max;
+    const y0 = rrgChart.options.scales.y.min, y1 = rrgChart.options.scales.y.max;
+    const rx = Math.max(4, (x1 - x0) * factor);
+    const ry = Math.max(4, (y1 - y0) * factor);
+    rrgChart.options.scales.x.min = 100 - rx/2;
+    rrgChart.options.scales.x.max = 100 + rx/2;
+    rrgChart.options.scales.y.min = 100 - ry/2;
+    rrgChart.options.scales.y.max = 100 + ry/2;
+    __rrgState.autoFit = false;
+    rrgChart.update("none");
+  };
+
+  const metaNote = `Updated: ${__rrgBundle?.at ? formatWhen(__rrgBundle.at) : "—"} • Bench: ${__rrgBundle?.bench || "—"} • TF: ${tf} • Algo: ${algo}`;
+  rrgRenderLegends(rrgBuildSeriesForChart(raw));
+  rrgRenderTable(rrgBuildSeriesForChart(raw), metaNote);
 }
 
 async function loadRRG(){
-  const tfSel = document.getElementById("rrgTf");
-  const tf = tfSel ? tfSel.value : "weekly";
   try{
-    const payload = await fetchJson(`data/rrg_sectors.json?ts=${Date.now()}`);
-    __rrgPayload = payload;
-    if(payload && payload.tf && tfSel && payload.tf !== tf){
-      // still render, but show a gentle nudge in the table header via updated timestamp line.
-      // (this is a static site; changing TF requires re-running the pipeline)
+    __rrgBundle = await fetchJson(`data/rrg_sectors.json?ts=${Date.now()}`);
+    if(!__rrgBundle || !__rrgBundle.data){
+      const el = document.getElementById("rrgTable");
+      if(el) el.innerHTML = `<small>RRG file found, but it looks like an older schema. Re-run the pipeline to regenerate <code>public/data/rrg_sectors.json</code>.</small>`;
+      return;
     }
-    renderRRG(payload);
+    renderRRG();
   }catch(e){
     const el = document.getElementById("rrgTable");
-    if(el) el.innerHTML = `<small>RRG data not found yet. Run the pipeline once (it will write <code>public/data/rrg_sectors.json</code>).</small>`;
+    if(el) el.innerHTML = `<small>RRG data not found yet. Expected <code>public/data/rrg_sectors.json</code>. Run the pipeline once.</small>`;
   }
 }
+
+// Wire controls (safe even if elements absent)
+(function initRrgControls(){
+  const rrgBtn = document.getElementById("rrgReload");
+  if(rrgBtn) rrgBtn.onclick = () => loadRRG();
+
+  const tfSel = document.getElementById("rrgTf");
+  if(tfSel) tfSel.onchange = () => renderRRG();
+
+  const algoSel = document.getElementById("rrgAlgo");
+  if(algoSel) algoSel.onchange = () => renderRRG();
+
+  const tailEl = document.getElementById("rrgTail");
+  const tailV  = document.getElementById("rrgTailV");
+  if(tailEl){
+    tailEl.oninput = () => {
+      if(tailV) tailV.textContent = String(tailEl.value);
+      renderRRG();
+    };
+  }
+
+  const fitBtn = document.getElementById("rrgFit");
+  if(fitBtn) fitBtn.onclick = () => { __rrgState.autoFit = true; renderRRG(); };
+
+  const resetBtn = document.getElementById("rrgReset");
+  if(resetBtn) resetBtn.onclick = () => {
+    __rrgState.autoFit = false;
+    if(rrgChart){
+      rrgChart.options.scales.x.min = 80;
+      rrgChart.options.scales.x.max = 120;
+      rrgChart.options.scales.y.min = 80;
+      rrgChart.options.scales.y.max = 120;
+      rrgChart.update("none");
+    }else{
+      renderRRG();
+    }
+  };
+})();
+
 
 
 load();

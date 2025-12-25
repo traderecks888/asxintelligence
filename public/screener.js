@@ -2044,6 +2044,21 @@ const RRG_THEME = {
   tailBorder: "rgba(15, 23, 42, 0.85)",
 };
 
+function intFromHex(h2){
+  const n = parseInt(h2, 16);
+  return Number.isFinite(n) ? n : 0;
+}
+function hexToRgba(hex, a){
+  const h = String(hex||"").replace("#","");
+  if(h.length != 6) return hex;
+  const r = intFromHex(h.slice(0,2));
+  const g = intFromHex(h.slice(2,4));
+  const b = intFromHex(h.slice(4,6));
+  const alpha = (a===undefined || a===null) ? 1 : a;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+
 function rrgQuadrant(x, y){
   if(!Number.isFinite(x) || !Number.isFinite(y)) return "—";
   if(x >= 100 && y >= 100) return "Leading";
@@ -2229,13 +2244,27 @@ function renderRRG(){
   }
 
   for(const s of series){
-    s.trail = (s.trail || []).slice(-Math.max(5, Math.min(20, tail)));
-    if(s.trail.length && (s.latest.t !== s.trail[s.trail.length-1].t)){
-      s.trail.push(s.latest);
+    const base = Array.isArray(s.trail) ? s.trail : [];
+    const sliced = base.slice(-Math.max(5, Math.min(20, tail)));
+
+    // Always ensure we have at least one visible point (the head).
+    if(!sliced.length && s.latest){
+      sliced.push(s.latest);
+    }else if(sliced.length && s.latest && (s.latest.t !== sliced[sliced.length-1].t)){
+      sliced.push(s.latest);
     }
+
+    s.trail = sliced;
   }
 
-  const dom = __rrgState.autoFit ? rrgAutoDomain(series) : (rrgChart ? {x:[rrgChart.options.scales.x.min, rrgChart.options.scales.x.max], y:[rrgChart.options.scales.y.min, rrgChart.options.scales.y.max]} : {x:[80,120], y:[80,120]});
+  let dom = __rrgState.autoFit ? rrgAutoDomain(series) : (rrgChart ? {x:[rrgChart.options.scales.x.min, rrgChart.options.scales.x.max], y:[rrgChart.options.scales.y.min, rrgChart.options.scales.y.max]} : {x:[80,120], y:[80,120]});
+
+  // Keep the 100/100 crosshair in view so we always see 4 quadrants.
+  dom = {
+    x: [Math.min(dom.x[0], 96), Math.max(dom.x[1], 104)],
+    y: [Math.min(dom.y[0], 96), Math.max(dom.y[1], 104)],
+  };
+
 
   const datasets = series.map(s=>{
     const color = RRG_COLORS[s.quad] || "#444";
@@ -2254,11 +2283,11 @@ function renderRRG(){
       borderWidth: 2,
       pointRadius: (ctx)=> {
         const n = ctx.dataset.data.length;
-        return (ctx.dataIndex === n-1) ? 7 : 4;
+        return (ctx.dataIndex === n-1) ? 8 : 5;
       },
       pointHoverRadius: (ctx)=> {
         const n = ctx.dataset.data.length;
-        return (ctx.dataIndex === n-1) ? 11 : 8;
+        return (ctx.dataIndex === n-1) ? 12 : 9;
       },
       pointBorderWidth: (ctx)=> {
         const n = ctx.dataset.data.length;
@@ -2266,14 +2295,13 @@ function renderRRG(){
       },
       pointBackgroundColor: (ctx)=> {
         const n = ctx.dataset.data.length;
-        // Head point: white fill with colored ring
-        if(ctx.dataIndex === n-1) return "#ffffff";
-        return color;
+        // Head point should match its quadrant color (filled).
+        if(ctx.dataIndex === n-1) return color;
+        // Tail points slightly translucent so trails are readable on white.
+        return hexToRgba(color, 0.65);
       },
       pointBorderColor: (ctx)=> {
-        const n = ctx.dataset.data.length;
-        // Head point ring = sector color; tail points get a dark outline for contrast
-        if(ctx.dataIndex === n-1) return color;
+        // Dark outline so points never disappear on white.
         return RRG_THEME.tailBorder;
       },
     };

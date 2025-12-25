@@ -6,7 +6,7 @@ on:
       force_run:
         description: "Run even if it's a national AU public holiday (Sydney)"
         required: false
-        default: false
+        default: true
         type: boolean
       debug_fast:
         description: "Debug mode: smaller sleep + skip resume (can help isolate issues)"

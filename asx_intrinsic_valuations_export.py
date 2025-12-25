@@ -1952,13 +1952,20 @@ def main() -> None:
                 prev_df = None
         if prev_df is None:
             # fallback to last published dataset (best effort)
+            fallback_web = Path(args.public_dir).resolve() / "latest_web.json"
+            if fallback_web.exists():
+                try:
+                    prev_df = pd.read_json(fallback_web)
+                except Exception:
+                    prev_df = None
             fallback_json = Path(args.public_dir).resolve() / "latest.json"
-            if fallback_json.exists():
+            if prev_df is None and fallback_json.exists():
                 try:
                     prev_df = pd.read_json(fallback_json)
                 except Exception:
                     prev_df = None
             fallback_csv = Path(args.public_dir).resolve() / "latest.csv"
+
             if prev_df is None and fallback_csv.exists():
                 try:
                     prev_df = pd.read_csv(fallback_csv)
@@ -1970,7 +1977,7 @@ def main() -> None:
     if args.resume or args.update_mode == "technicals":
         _load_prev()
 
-    if args.resume and progress_csv.exists() and prev_df is not None and "Ticker" in prev_df.columns:
+    if args.resume and args.update_mode != "technicals" and progress_csv.exists() and prev_df is not None and "Ticker" in prev_df.columns:
         processed = set(prev_df["Ticker"].astype(str).map(normalize_ticker).tolist())
         rows_out = prev_df.to_dict(orient="records")
         print(f"[resume] loaded {len(processed)} processed tickers from {progress_csv}")

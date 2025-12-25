@@ -1890,8 +1890,8 @@ function rebuildCharts(rows){
           }
         }
       },
-      scales:{
-        x:{
+      scales: {
+        x: {
           ticks:{
             autoSkip:false,
             maxRotation:45,
@@ -2034,14 +2034,19 @@ const RRG_COLORS = {
 
 // White-background friendly theme (higher contrast than the dark-mode tuned defaults)
 const RRG_THEME = {
-  text: "#0f172a",          // slate-900
-  muted: "#334155",         // slate-700
-  border: "#cbd5e1",        // slate-300
-  grid: "rgba(15, 23, 42, 0.10)",
-  crosshair: "rgba(15, 23, 42, 0.35)",
-  labelFill: "rgba(15, 23, 42, 0.80)",
-  labelStroke: "rgba(255, 255, 255, 0.95)",
-  tailBorder: "rgba(15, 23, 42, 0.85)",
+  // We keep the overall site white, but render the RRG plot area as "dark mode"
+  // because it dramatically improves contrast for trails/heads/labels.
+  plotBg: "#0b1020",
+  text: "#0f172a",                 // surrounding UI (white background)
+  muted: "#334155",
+  border: "#cbd5e1",
+
+  // Inside-plot styling (dark plot area)
+  grid: "rgba(255, 255, 255, 0.08)",
+  crosshair: "rgba(255, 255, 255, 0.22)",
+  labelFill: "rgba(255, 255, 255, 0.80)",
+  labelStroke: "rgba(0, 0, 0, 0.75)",
+  tailBorder: "rgba(255, 255, 255, 0.90)",
 };
 
 function intFromHex(h2){
@@ -2320,11 +2325,15 @@ function renderRRG(){
       ctx.rect(chartArea.left, chartArea.top, chartArea.right-chartArea.left, chartArea.bottom-chartArea.top);
       ctx.clip();
 
+      // Dark plot background (matches tilescreener reference behavior)
+      ctx.fillStyle = RRG_THEME.plotBg;
+      ctx.fillRect(chartArea.left, chartArea.top, chartArea.right-chartArea.left, chartArea.bottom-chartArea.top);
+
       const fill = (x0,y0,w,h,c)=>{ ctx.fillStyle=c; ctx.fillRect(x0,y0,w,h); };
-      fill(chartArea.left, chartArea.top, x100-chartArea.left, y100-chartArea.top, "rgba(59,130,246,0.10)"); // Improving
-      fill(x100, chartArea.top, chartArea.right-x100, y100-chartArea.top, "rgba(34,197,94,0.10)"); // Leading
-      fill(x100, y100, chartArea.right-x100, chartArea.bottom-y100, "rgba(245,158,11,0.10)"); // Weakening
-      fill(chartArea.left, y100, x100-chartArea.left, chartArea.bottom-y100, "rgba(239,68,68,0.10)"); // Lagging
+      fill(chartArea.left, chartArea.top, x100-chartArea.left, y100-chartArea.top, "rgba(59,130,246,0.18)"); // Improving
+      fill(x100, chartArea.top, chartArea.right-x100, y100-chartArea.top, "rgba(34,197,94,0.18)"); // Leading
+      fill(x100, y100, chartArea.right-x100, chartArea.bottom-y100, "rgba(245,158,11,0.18)"); // Weakening
+      fill(chartArea.left, y100, x100-chartArea.left, chartArea.bottom-y100, "rgba(239,68,68,0.18)"); // Lagging
       ctx.restore();
     },
     afterDraw(chart){
@@ -2370,9 +2379,9 @@ function renderRRG(){
       const {ctx} = chart;
       ctx.save();
       ctx.font = "600 13px system-ui,-apple-system,Segoe UI,Roboto";
-      ctx.fillStyle = "rgba(15,23,42,0.95)";
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
-      ctx.lineWidth = 3;
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.strokeStyle = "rgba(0,0,0,0.85)";
+      ctx.lineWidth = 4;
       for(let i=0;i<chart.data.datasets.length;i++){
         const ds = chart.data.datasets[i];
         if(ds.hidden) continue;
@@ -2395,6 +2404,7 @@ function renderRRG(){
   if(rrgChart) rrgChart.destroy();
 
   rrgChart = new Chart(canvas, {
+    type: "scatter",
     data: { datasets },
     options: {
       maintainAspectRatio: false,
@@ -2417,6 +2427,7 @@ function renderRRG(){
       },
       scales: {
         x: {
+          type: "linear",
           title: {display:true, text:"RS-Ratio", color: RRG_THEME.text},
           ticks: { color: RRG_THEME.muted },
           grid: { color: RRG_THEME.grid },
@@ -2425,6 +2436,7 @@ function renderRRG(){
           max: dom.x[1]
         },
         y: {
+          type: "linear",
           title: {display:true, text:"RS-Momentum", color: RRG_THEME.text},
           ticks: { color: RRG_THEME.muted },
           grid: { color: RRG_THEME.grid },

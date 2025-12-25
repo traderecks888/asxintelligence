@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Iterable
 
 import numpy as np
 import pandas as pd
@@ -1011,6 +1011,102 @@ def fetch_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _split_download_frame(df: pd.DataFrame, symbols: List[str]) -> Dict[str, pd.DataFrame]:
+    """Split yfinance.download multi-ticker output into per-symbol OHLCV frames.
+
+    yfinance output schema varies by version:
+    - MultiIndex columns: (symbol, field)
+    - MultiIndex columns: (field, symbol)
+    - Single-index columns for a single symbol.
+    """
+    out: Dict[str, pd.DataFrame] = {}
+    if df is None or df.empty:
+        return out
+
+    sym_set = set(symbols)
+
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl0 = df.columns.get_level_values(0)
+        lvl1 = df.columns.get_level_values(1)
+
+        if any(s in sym_set for s in lvl0):
+            for s in symbols:
+                if s in lvl0:
+                    sub = df[s].copy()
+                    out[s] = sub
+        elif any(s in sym_set for s in lvl1):
+            for s in symbols:
+                if s in lvl1:
+                    sub = df.xs(s, axis=1, level=1, drop_level=True).copy()
+                    out[s] = sub
+    else:
+        # Single-ticker frame
+        if len(symbols) == 1:
+            out[symbols[0]] = df.copy()
+
+    # Normalize columns
+    for s, sub in list(out.items()):
+        if sub is None or sub.empty:
+            continue
+        sub2 = sub.copy()
+        if "Adj Close" in sub2.columns and "Close" not in sub2.columns:
+            sub2.rename(columns={"Adj Close": "Close"}, inplace=True)
+        # Some yfinance versions return lowercase; standardize
+        ren = {}
+        for c in sub2.columns:
+            if isinstance(c, str):
+                ren[c] = c[:1].upper() + c[1:]
+        if ren:
+            sub2.rename(columns=ren, inplace=True)
+        out[s] = sub2
+
+    return out
+
+
+def bulk_fetch_history(symbols: List[str], period: str, interval: str, chunk_size: int = 250) -> Dict[str, pd.DataFrame]:
+    """Bulk-download OHLCV for many tickers in chunks.
+
+    This is usually *much* faster than calling Ticker().history per symbol because it reduces
+    thousands of HTTP requests to ~N/chunk_size requests.
+    """
+    # Unique, preserve order
+    uniq: List[str] = []
+    seen = set()
+    for s in symbols:
+        s2 = str(s).strip()
+        if not s2 or s2 in seen:
+            continue
+        seen.add(s2)
+        uniq.append(s2)
+
+    out: Dict[str, pd.DataFrame] = {}
+    if not uniq:
+        return out
+
+    chunk_size = int(chunk_size) if chunk_size and int(chunk_size) > 0 else 250
+
+    for i in range(0, len(uniq), chunk_size):
+        chunk = uniq[i:i + chunk_size]
+        tickers_str = " ".join(chunk)
+        try:
+            df = yf.download(
+                tickers=tickers_str,
+                period=period,
+                interval=interval,
+                group_by="ticker",
+                auto_adjust=True,
+                threads=True,
+                progress=False,
+            )
+        except Exception as e:
+            print(f"[warn] bulk download failed for chunk {i//chunk_size+1}: {e}")
+            continue
+
+        out.update(_split_download_frame(df, chunk))
+
+    return out
+
+
 def data_quality_score(r: Dict[str, Any]) -> float:
     keys = [
         "Price", "Market Cap", "Shares Out", "FCF (Yahoo)",
@@ -1153,7 +1249,16 @@ def build_out_row(base: Dict[str, Any], tech: Dict[str, Any]) -> Dict[str, Any]:
 
     return out_row
 
-def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[pd.Series], history_period: str, history_interval: str, disable_technicals: bool, include_long_tf: bool = True) -> Optional[Dict[str, Any]]:
+def fetch_one(
+    ticker_code: str,
+    company: UniverseRow,
+    benchmark_rets: Optional[pd.Series],
+    history_period: str,
+    history_interval: str,
+    disable_technicals: bool,
+    include_long_tf: bool = True,
+    hist_override: Optional[pd.DataFrame] = None,
+) -> Optional[Dict[str, Any]]:
     sym = yahoo_symbol(ticker_code)
     t = yf.Ticker(sym)
     info = try_get_info(t)
@@ -1260,7 +1365,7 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
     # Technicals (daily + weekly/monthly for longer-horizon signals)
     tech: Dict[str, Any] = {}
     if not disable_technicals:
-        hist = fetch_history(sym, history_period, history_interval)
+        hist = hist_override if (isinstance(hist_override, pd.DataFrame) and not hist_override.empty) else fetch_history(sym, history_period, history_interval)
         hist_w = None
         hist_m = None
         if include_long_tf:
@@ -1472,7 +1577,15 @@ def base_from_prev_row(prev: Dict[str, Any], company: UniverseRow) -> Dict[str, 
     return base
 
 
-def fetch_one_technicals(prev_row: Dict[str, Any], company: UniverseRow, benchmark_rets: Optional[pd.Series], history_period: str, history_interval: str, include_long_tf: bool = True) -> Optional[Dict[str, Any]]:
+def fetch_one_technicals(
+    prev_row: Dict[str, Any],
+    company: UniverseRow,
+    benchmark_rets: Optional[pd.Series],
+    history_period: str,
+    history_interval: str,
+    include_long_tf: bool = True,
+    hist_override: Optional[pd.DataFrame] = None,
+) -> Optional[Dict[str, Any]]:
     """Update technicals + price-sensitive valuation deltas without refetching fundamentals."""
     ticker_code = normalize_ticker(str(prev_row.get("Ticker", "")))
     if not ticker_code:
@@ -1482,7 +1595,8 @@ def fetch_one_technicals(prev_row: Dict[str, Any], company: UniverseRow, benchma
 
     sym = yahoo_symbol(ticker_code)
 
-    hist = fetch_history(sym, history_period, history_interval)
+    # If bulk prices are available, prefer them (fewer HTTP requests).
+    hist = hist_override if (isinstance(hist_override, pd.DataFrame) and not hist_override.empty) else fetch_history(sym, history_period, history_interval)
     if not hist.empty and "Close" in hist.columns:
         try:
             px = float(pd.to_numeric(hist["Close"], errors="coerce").dropna().iloc[-1])
@@ -1650,6 +1764,13 @@ def main() -> None:
     ap.add_argument("--benchmark", default="^AXJO", help="Benchmark ticker for beta calc (default ^AXJO)")
     ap.add_argument("--history_period", default="1y", help="yfinance history period (default 1y)")
     ap.add_argument("--history_interval", default="1d", help="yfinance history interval (default 1d)")
+    ap.add_argument(
+        "--bulk_prices",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Bulk-download daily OHLCV in chunks via yfinance.download (much faster than per-ticker history)",
+    )
+    ap.add_argument("--bulk_chunk_size", type=int, default=250, help="Tickers per yfinance.download request when --bulk_prices is enabled")
     ap.add_argument("--disable_technicals", action="store_true", help="Disable technical calculations (faster)")
     ap.add_argument("--update_mode", default="full", choices=["full", "technicals"], help="full = refresh fundamentals+technicals; technicals = refresh only technicals/price using prior output")
     ap.add_argument("--no_long_tf", action="store_true", help="Skip weekly/monthly technical overlays (faster)")
@@ -1677,11 +1798,24 @@ def main() -> None:
 
     me_df = maybe_load_materials_energy(Path(args.materials_energy_csv).resolve())
 
+    # ----------------------------------------------------------------------------------
+    # Bulk price history (fast path)
+    # ----------------------------------------------------------------------------------
+    daily_hist_map: Dict[str, pd.DataFrame] = {}
+    if not args.disable_technicals and bool(args.bulk_prices):
+        syms = [yahoo_symbol(u.ticker) for u in universe]
+        if args.benchmark:
+            syms = syms + [str(args.benchmark)]
+        print(f"[info] bulk downloading price history in chunks (n={len(syms)}; chunk={int(args.bulk_chunk_size)})")
+        daily_hist_map = bulk_fetch_history(syms, args.history_period, args.history_interval, chunk_size=int(args.bulk_chunk_size))
+
     # Benchmark returns (daily)
     benchmark_rets = None
     if not args.disable_technicals:
         try:
-            b_hist = fetch_history(args.benchmark, args.history_period, args.history_interval)
+            b_hist = daily_hist_map.get(str(args.benchmark), pd.DataFrame())
+            if b_hist.empty:
+                b_hist = fetch_history(args.benchmark, args.history_period, args.history_interval)
             if not b_hist.empty and "Close" in b_hist.columns:
                 benchmark_rets = b_hist["Close"].astype(float).pct_change().dropna()
         except Exception:
@@ -1743,17 +1877,20 @@ def main() -> None:
         # In technical-only mode we still iterate the universe so new tickers get pulled in.
         prev_row = prev_map.get(u.ticker)
 
+        sym_u = yahoo_symbol(u.ticker)
+        hist_override_u = daily_hist_map.get(sym_u) if daily_hist_map else None
+
         if args.update_mode == "technicals" and prev_row is not None:
             print(f"[{i}/{len(universe)}] {u.ticker} (technicals)")
             try:
-                r = fetch_one_technicals(prev_row, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, include_long_tf=include_long_tf)
+                r = fetch_one_technicals(prev_row, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, include_long_tf=include_long_tf, hist_override=hist_override_u)
                 if r is not None:
                     rows_out.append(r)
                     processed.add(u.ticker)
             except Exception as e:
                 print(f"[warn] {u.ticker} technicals update failed; falling back to full: {e}")
                 try:
-                    r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf)
+                    r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf, hist_override=hist_override_u)
                     if r is not None:
                         rows_out.append(r)
                         processed.add(u.ticker)
@@ -1764,7 +1901,7 @@ def main() -> None:
                 continue
             print(f"[{i}/{len(universe)}] {u.ticker}")
             try:
-                r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf)
+                r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf, hist_override=hist_override_u)
                 if r is not None:
                     rows_out.append(r)
                     processed.add(u.ticker)
@@ -1775,7 +1912,20 @@ def main() -> None:
             ensure_parent_dir(progress_csv)
             pd.DataFrame(rows_out).to_csv(progress_csv, index=False)
 
-        time.sleep(max(0.0, float(args.sleep)))
+        sleep_s = max(0.0, float(args.sleep))
+        if sleep_s > 0:
+            # In technical-only mode, with bulk daily prices and no weekly/monthly overlays,
+            # we can skip per-ticker sleeping (no per-ticker HTTP calls are expected).
+            fast_technicals = (
+                args.update_mode == "technicals"
+                and prev_row is not None
+                and bool(args.bulk_prices)
+                and bool(args.no_long_tf)
+                and isinstance(hist_override_u, pd.DataFrame)
+                and not hist_override_u.empty
+            )
+            if not fast_technicals:
+                time.sleep(sleep_s)
     dt = time.time() - t0
     print(f"[done] processed={len(processed)} rows in {dt/60.0:.1f} min")
 

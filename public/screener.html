@@ -431,7 +431,25 @@
 
 
     
-      </details>
+      
+    <div class="card" style="margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <strong>Sector RRG (Relative Rotation vs ASX 200)</strong>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <select id="rrgTf" title="RRG timeframe">
+            <option value="weekly" selected>Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <button id="rrgReload" class="secondary" title="Reload RRG data">Reload</button>
+        </div>
+      </div>
+      <canvas id="rrg" style="height:360px;"></canvas>
+      <small>Baseline is (100,100). Leading = x&gt;100 &amp; y&gt;100. Improving = x&lt;100 &amp; y&gt;100. Weakening = x&gt;100 &amp; y&lt;100. Lagging = x&lt;100 &amp; y&lt;100.</small>
+      <div id="rrgTable" style="margin-top:10px;overflow:auto;"></div>
+    </div>
+
+</details>
 
   <div class="card" style="margin-top:12px;">
     <div class="topbar" style="margin:0;">

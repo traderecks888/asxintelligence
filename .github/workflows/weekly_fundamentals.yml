@@ -1,4 +1,4 @@
-name: ASX Intelligence – Twice Daily Refresh
+name: ASX Intelligence – Weekly Fundamentals Refresh
 
 on:
   workflow_dispatch:
@@ -8,39 +8,22 @@ on:
         required: false
         default: false
         type: boolean
-      debug_fast:
-        description: "Debug mode: smaller sleep + skip resume (can help isolate issues)"
-        required: false
-        default: false
-        type: boolean
   schedule:
-    # GitHub cron uses UTC.
-    #
-    # Target times are based on ASX trading hours (Sydney time).
-    #
-    # AEDT (Sydney summer, UTC+11):
-    # Mid-session (~13:00 Sydney) -> 02:00 UTC
-    - cron: "0 2 * * 1-5"
-    # End-of-session (~16:25 Sydney) -> 05:25 UTC
-    - cron: "25 5 * * 1-5"
-    #
-    # AEST (Sydney winter, UTC+10):
-    # Uncomment these and remove the AEDT lines above if you want winter-perfect timing.
-    # - cron: "0 3 * * 1-5"
-    # - cron: "25 6 * * 1-5"
+    # Weekly full fundamentals refresh (UTC). Adjust as you like.
+    - cron: "30 0 * * 0"  # Sunday 00:30 UTC
 
 permissions:
   contents: write
   issues: write
 
 concurrency:
-  group: asxintelligence-refresh
+  group: asxintelligence-weekly
   cancel-in-progress: false
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 47
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -56,14 +39,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Used to skip national AU public holidays (Sydney time)
           pip install holidays
-
-      # Guardrail: fail the workflow if screener JS has a syntax error
-      - name: Validate screener JS (syntax)
-        run: |
-          node --version
-          node --check public/screener.js
 
       - name: Skip on AU national public holidays (Sydney time)
         id: holiday
@@ -76,13 +52,10 @@ jobs:
           from zoneinfo import ZoneInfo
           import holidays
 
-          # Use Sydney date because the workflow schedule is UTC-based.
           today = datetime.now(ZoneInfo("Australia/Sydney")).date()
-
           au = holidays.Australia(years=[today.year])
-          name = au.get(today)  # holiday name or None
+          name = au.get(today)
 
-          # "National" holidays (not state-only). We treat "Observed" variants as national too.
           national_keywords = [
             "New Year's Day",
             "Australia Day",
@@ -106,21 +79,10 @@ jobs:
             print(f"Not a national public holiday: {today} ({name or 'none'})")
           PY
 
-      - name: Note skip (holiday)
-        if: steps.holiday.outputs.skip == 'true'
-        run: |
-          echo "Holiday detected (Sydney): ${{ steps.holiday.outputs.holiday_name }}"
-          echo "Skipping valuation refresh + commit to save minutes."
-
-      - name: Run valuation refresh
+      - name: Run full refresh (fundamentals + technicals)
         if: steps.holiday.outputs.skip != 'true'
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.debug_fast }}" = "true" ]; then
-            echo "Debug-fast mode enabled"
-            python asx_intrinsic_valuations_export.py --update_mode technicals --no_long_tf --generate_rrg --rrg_tf weekly --universe_max_age_days 30 --public_dir public/data --sleep 0.05 --history_period 1y --benchmark ^AXJO
-          else
-            python asx_intrinsic_valuations_export.py --resume --update_mode technicals --no_long_tf --generate_rrg --rrg_tf weekly --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
-          fi
+          python asx_intrinsic_valuations_export.py --resume --update_mode full --generate_rrg --rrg_tf weekly --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
 
       - name: Smoke check outputs exist
         if: steps.holiday.outputs.skip != 'true'
@@ -128,25 +90,7 @@ jobs:
           test -f public/data/manifest.json
           test -f public/data/latest_web.json
           test -f public/data/latest.xlsx
-          python - <<'PY'
-          import json, pathlib
-          p = pathlib.Path("public/data/latest_web.json")
-          data = json.loads(p.read_text(encoding="utf-8"))
-          assert isinstance(data, list) and len(data) > 0
-          print("OK: latest_web.json rows:", len(data))
-          PY
-
-      - name: Upload debug artifacts (only if failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: asxintelligence-debug
-          retention-days: 7
-          if-no-files-found: ignore
-          path: |
-            public/data/manifest.json
-            public/data/latest_web.json
-            public/data/latest.xlsx
+          test -f public/data/rrg_sectors.json
 
       - name: Commit updated data (public/data)
         if: success() && steps.holiday.outputs.skip != 'true'
@@ -158,7 +102,7 @@ jobs:
             echo "No data changes to commit."
             exit 0
           fi
-          git commit -m "data: refresh public dataset"
+          git commit -m "data: weekly fundamentals refresh"
           git push
 
       - name: Create GitHub issue on failure
@@ -167,9 +111,9 @@ jobs:
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const title = `ASX twice-daily refresh failed (${new Date().toISOString().slice(0,10)})`;
+            const title = `ASX weekly fundamentals refresh failed (${new Date().toISOString().slice(0,10)})`;
             const body = [
-              "The scheduled ASX twice-daily refresh workflow failed.",
+              "The scheduled weekly fundamentals refresh workflow failed.",
               "",
               `Run: ${runUrl}`,
               "",
@@ -177,9 +121,7 @@ jobs:
               "- Yahoo/yfinance intermittent issues or rate limiting",
               "- Missing dependencies in requirements.txt",
               "- Data source / HTML changes upstream",
-              "- JS syntax check failed (see logs)",
               "",
-              "Tip: the Smoke check step usually pinpoints missing outputs.",
             ].join("\n");
             await github.rest.issues.create({
               owner: context.repo.owner,

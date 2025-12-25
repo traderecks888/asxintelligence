@@ -1029,7 +1029,131 @@ def data_quality_score(r: Dict[str, Any]) -> float:
     return float(ok / len(keys))
 
 
-def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[pd.Series], history_period: str, history_interval: str, disable_technicals: bool) -> Optional[Dict[str, Any]]:
+
+
+def build_out_row(base: Dict[str, Any], tech: Dict[str, Any]) -> Dict[str, Any]:
+    """Map internal base fields + computed technicals into the stable, UI-facing row schema."""
+    out_row: Dict[str, Any] = {
+        "Ticker": base["ticker"],
+        "Company": base["company_name"],
+        "Sector": base["sector"],
+        "Industry": base["industry"],
+        "Currency": base["currency"],
+        "As Of": base["asof"],
+
+        "Price": base["currentPrice"],
+        "Market Cap": base["marketCap"],
+        "Shares Out": base["sharesOutstanding"],
+
+        "Cash": base["cash"],
+        "Total Debt": base["totalDebt"],
+        "Net Debt (Debt - Cash)": base.get("net_debt", np.nan),
+        "Total Assets": base["total_assets"],
+        "Total Liabilities": base["total_liabilities"],
+        "NTA": base["net_tangible_assets"],
+        "NTA / Share": base.get("nta_per_share", np.nan),
+
+        "Book Value (Total, Yahoo)": base.get("book_value_total_yahoo", np.nan),
+        "Book Value / Share (Yahoo)": base.get("book_value_per_share_yahoo", np.nan),
+        "Book Value (Total, Assets-Liab)": base.get("book_value_total_bs_equity", np.nan),
+        "Book Value / Share (Assets-Liab)": base.get("book_value_per_share_bs_equity", np.nan),
+
+        "DCF Price (5yr)": base.get("dcf_price", np.nan),
+        "Residual Income Price": base.get("residual_income_price", np.nan),
+        "Asset Based Price": base.get("asset_based_price", np.nan),
+        "SOTP Price": base.get("sotp_price", np.nan),
+        "Dividend Discount Price": base.get("ddm_price", np.nan),
+        "Earnings Power Value (EPV) Price": base.get("epv_price", np.nan),
+        "Option Pricing Value": base.get("option_value", np.nan),
+
+        "DCF Estimate": base.get("dcf_estimate", ""),
+
+        "DCF Premium/(Discount)": base.get("dcf_prem", np.nan),
+        "Residual Income Premium/(Discount)": base.get("ri_prem", np.nan),
+        "Asset Based Premium/(Discount)": base.get("asset_prem", np.nan),
+        "SOTP Premium/(Discount)": base.get("sotp_prem", np.nan),
+        "Dividend Discount Premium/(Discount)": base.get("ddm_prem", np.nan),
+        "EPV Premium/(Discount)": base.get("epv_prem", np.nan),
+        "Option Pricing Premium/(Discount)": base.get("opt_prem", np.nan),
+
+        "Undervalued Methods Count": base.get("undervalued_methods_count", np.nan),
+        "Margin of Safety": base.get("margin_of_safety", np.nan),
+        "MOS Buy Price": base.get("mos_buy_price", np.nan),
+
+        "FCF (Yahoo)": base.get("freeCashflow", np.nan),
+        "Revenue Growth (Yahoo)": base.get("revenueGrowth", np.nan),
+        "Growth Input Used": base.get("growth_input_used", np.nan),
+        "Beta": base.get("beta", np.nan),
+        "Risk Free Rate": ASSUMPTIONS["risk_free_rate"],
+        "Market Risk Premium": ASSUMPTIONS["market_risk_premium"],
+        "Cost of Equity": base.get("cost_of_equity", np.nan),
+        "WACC": base.get("wacc", np.nan),
+        "Terminal Growth Rate": ASSUMPTIONS["terminal_growth_rate"],
+        "Valuation Period (yrs)": ASSUMPTIONS["valuation_period"],
+        "Tax Rate": ASSUMPTIONS["tax_rate"],
+
+        "FCF Yield": base.get("fcf_yield", np.nan),
+        "Trailing PE": base.get("trailing_pe", np.nan),
+        "Forward PE": base.get("forward_pe", np.nan),
+        "P/B": base.get("price_to_book", np.nan),
+        "EV/EBITDA": base.get("ev_to_ebitda", np.nan),
+        "Net Debt/EBITDA": base.get("net_debt_to_ebitda", np.nan),
+
+        "ROA": base.get("roa", np.nan),
+        "ROE": base.get("roe", np.nan),
+        "Gross Margin": base.get("gross_margin", np.nan),
+        "Operating Margin": base.get("operating_margin", np.nan),
+        "Profit Margin": base.get("profit_margin", np.nan),
+
+        "Debt/Equity": base.get("debt_to_equity", np.nan),
+        "Current Ratio": base.get("current_ratio", np.nan),
+        "Quick Ratio": base.get("quick_ratio", np.nan),
+
+        "Held % Insiders": base.get("held_pct_insiders", np.nan),
+        "Held % Institutions": base.get("held_pct_institutions", np.nan),
+        "Short % Float": base.get("short_pct_float", np.nan),
+        "Dividend Rate (Yahoo)": base.get("dividend_rate", np.nan),
+        "Dividend Yield (Yahoo)": norm_yield(base.get("dividend_yield", np.nan)),
+
+        # Raw Yahoo dividend metadata (as available)
+        "Payout Ratio (Yahoo)": base.get("payoutRatio", np.nan),
+        "5Y Avg Dividend Yield (Yahoo)": norm_yield(base.get("fiveYearAvgDividendYield", np.nan)),
+        "Ex-Dividend Date (Yahoo)": epoch_to_date_str(base.get("exDividendDate", np.nan)),
+        "Last Dividend Value (Yahoo)": base.get("lastDividendValue", np.nan),
+        "Last Dividend Date (Yahoo)": epoch_to_date_str(base.get("lastDividendDate", np.nan)),
+
+        # Requested calc: trailing annual dividend rate / latest share price
+        "Dividend Yield (Latest, Calc)": (
+            float(base.get("dividend_rate", np.nan)) / float(base["currentPrice"])
+            if (not np.isnan(base.get("dividend_rate", np.nan)) and not np.isnan(base["currentPrice"]) and float(base["currentPrice"]) > 0)
+            else np.nan
+        ),
+
+        # Delta between Yahoo's dividendYield and the calculated yield above (relative % change)
+        "Dividend Yield Δ% (Yahoo→Calc)": (
+            ( (float(base.get("dividend_rate", np.nan)) / float(base["currentPrice"])) - float(norm_yield(base.get("dividend_yield", np.nan))) )
+            / float(norm_yield(base.get("dividend_yield", np.nan)))
+            if (not np.isnan(base.get("dividend_rate", np.nan)) and not np.isnan(base["currentPrice"]) and float(base["currentPrice"]) > 0
+                and not np.isnan(base.get("dividend_yield", np.nan)) and float(norm_yield(base.get("dividend_yield", np.nan))) != 0)
+            else np.nan
+        ),
+
+
+        "Reverse DCF Implied Growth": base.get("reverse_dcf_implied_growth", np.nan),
+        "PEG Ratio": base.get("peg_ratio", np.nan),
+
+        "Enterprise Value (Yahoo/Calc)": base.get("enterprise_value_yahoo_or_calc", np.nan),
+    }
+
+    # Add technical columns with the exact names the screener expects
+    out_row.update(tech)
+
+    # Add a simple completeness score for quick filtering
+    out_row["Data Quality Score"] = data_quality_score(out_row)
+
+    return out_row
+
+def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[pd.Series], history_period: str, history_interval: str, disable_technicals: bool, include_long_tf: bool = True) -> Optional[Dict[str, Any]]:
     sym = yahoo_symbol(ticker_code)
     t = yf.Ticker(sym)
     info = try_get_info(t)
@@ -1137,9 +1261,12 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
     tech: Dict[str, Any] = {}
     if not disable_technicals:
         hist = fetch_history(sym, history_period, history_interval)
-        # Weekly/monthly are small row-count and unlock 200-week SMA + multi-timeframe SR
-        hist_w = fetch_history(sym, "5y", "1wk")
-        hist_m = fetch_history(sym, "10y", "1mo")
+        hist_w = None
+        hist_m = None
+        if include_long_tf:
+            # Weekly/monthly are small row-count and unlock 200-week SMA + multi-timeframe SR
+            hist_w = fetch_history(sym, "5y", "1wk")
+            hist_m = fetch_history(sym, "10y", "1mo")
         tech = compute_technicals(hist, benchmark_rets=benchmark_rets, weekly_hist=hist_w, monthly_hist=hist_m)
     else:
         tech = compute_technicals(pd.DataFrame(), benchmark_rets=None, weekly_hist=None, monthly_hist=None)
@@ -1278,6 +1405,233 @@ def fetch_one(ticker_code: str, company: UniverseRow, benchmark_rets: Optional[p
     return out_row
 
 
+def base_from_prev_row(prev: Dict[str, Any], company: UniverseRow) -> Dict[str, Any]:
+    """Rebuild the internal base dict (the input schema for calc_valuations) from a previously exported UI row."""
+    def g(k: str, default=np.nan):
+        v = prev.get(k, default)
+        return default if v is None else v
+
+    base: Dict[str, Any] = {
+        "ticker": normalize_ticker(str(g("Ticker", ""))),
+        "company_name": str(g("Company", "")) or company.name,
+        "sector": str(g("Sector", "")) or company.sector,
+        "industry": str(g("Industry", "")) or company.industry,
+        "currency": str(g("Currency", "AUD")) or "AUD",
+        "asof": datetime.now().strftime("%Y-%m-%d"),
+
+        "currentPrice": g("Price", np.nan),
+        "marketCap": g("Market Cap", np.nan),
+        "sharesOutstanding": g("Shares Out", np.nan),
+
+        "cash": g("Cash", np.nan),
+        "totalDebt": g("Total Debt", np.nan),
+        "total_assets": g("Total Assets", np.nan),
+        "total_liabilities": g("Total Liabilities", np.nan),
+        "net_tangible_assets": g("NTA", np.nan),
+
+        # Yahoo-like fundamental inputs
+        "freeCashflow": g("FCF (Yahoo)", np.nan),
+        "revenueGrowth": g("Revenue Growth (Yahoo)", np.nan),
+        "earningsGrowth": g("Earnings Growth (Yahoo)", np.nan),
+        "beta": g("Beta", np.nan),
+
+        # Per-share + profitability
+        "bookValue": g("Book Value / Share (Yahoo)", np.nan),
+        "returnOnEquity": g("ROE", np.nan),
+        "trailingPE": g("Trailing PE", np.nan),
+        "enterpriseToEbitda": g("EV/EBITDA", np.nan),
+        "priceToBook": g("P/B", np.nan),
+        "totalRevenue": g("Revenue (Yahoo)", np.nan),
+        "ebitda": g("EBITDA (Yahoo)", np.nan),
+        "operatingMargins": g("Operating Margin", np.nan),
+
+        # Dividends
+        "dividendRate": g("Dividend Rate (Yahoo)", np.nan),
+        "dividendYield": g("Dividend Yield (Yahoo)", np.nan),
+        "payoutRatio": g("Payout Ratio (Yahoo)", np.nan),
+        "fiveYearAvgDividendYield": g("5Y Avg Dividend Yield (Yahoo)", np.nan),
+        "exDividendDate": g("Ex-Dividend Date (Yahoo)", np.nan),
+        "lastDividendValue": g("Last Dividend Value (Yahoo)", np.nan),
+        "lastDividendDate": g("Last Dividend Date (Yahoo)", np.nan),
+
+        # Helpful derived fields (if present)
+        "net_debt": g("Net Debt (Debt - Cash)", np.nan),
+        "nta_per_share": g("NTA / Share", np.nan),
+        "book_value_total_yahoo": g("Book Value (Total, Yahoo)", np.nan),
+        "book_value_total_assets_liab": g("Book Value (Total, Assets-Liab)", np.nan),
+        "enterprise_value_yahoo_or_calc": g("Enterprise Value (Yahoo/Calc)", np.nan),
+        "net_debt_to_ebitda": g("Net Debt/EBITDA", np.nan),
+
+        # Optional: insiders / inst / short interest (already in UI row)
+        "held_pct_insiders": g("Held % Insiders", np.nan),
+        "held_pct_institutions": g("Held % Institutions", np.nan),
+        "short_pct_float": g("Short % Float", np.nan),
+        "profit_margin": g("Profit Margin", np.nan),
+        "gross_margin": g("Gross Margin", np.nan),
+    }
+    return base
+
+
+def fetch_one_technicals(prev_row: Dict[str, Any], company: UniverseRow, benchmark_rets: Optional[pd.Series], history_period: str, history_interval: str, include_long_tf: bool = True) -> Optional[Dict[str, Any]]:
+    """Update technicals + price-sensitive valuation deltas without refetching fundamentals."""
+    ticker_code = normalize_ticker(str(prev_row.get("Ticker", "")))
+    if not ticker_code:
+        return None
+
+    base = base_from_prev_row(prev_row, company)
+
+    sym = yahoo_symbol(ticker_code)
+
+    hist = fetch_history(sym, history_period, history_interval)
+    if not hist.empty and "Close" in hist.columns:
+        try:
+            px = float(pd.to_numeric(hist["Close"], errors="coerce").dropna().iloc[-1])
+            base["currentPrice"] = px
+            # Recompute market cap from shares if possible (keeps charts/filters sensible between weekly fundamental runs)
+            sh = base.get("sharesOutstanding", np.nan)
+            if isinstance(sh, (int, float)) and not np.isnan(sh) and sh > 0 and px > 0:
+                base["marketCap"] = float(sh) * px
+        except Exception:
+            pass
+
+    hist_w = None
+    hist_m = None
+    if include_long_tf:
+        hist_w = fetch_history(sym, "5y", "1wk")
+        hist_m = fetch_history(sym, "10y", "1mo")
+
+    tech = compute_technicals(hist, benchmark_rets=benchmark_rets, weekly_hist=hist_w, monthly_hist=hist_m)
+
+    # Refresh valuations that depend on the updated price (and any technical-only updates above)
+    base.update(calc_valuations(base))
+
+    return build_out_row(base, tech)
+
+
+# --------------------------------------------------------------------------------------
+# RRG (Relative Rotation Graph) exports (sector indices via Yahoo)
+# --------------------------------------------------------------------------------------
+
+RRG_SECTORS = [
+    {"symbol": "^AXTJ", "name": "Communication"},
+    {"symbol": "^AXDJ", "name": "Cons Disc"},
+    {"symbol": "^AXSJ", "name": "Cons Staples"},
+    {"symbol": "^AXEJ", "name": "Energy"},
+    {"symbol": "^AXFJ", "name": "Financials"},
+    {"symbol": "^AXHJ", "name": "Health Care"},
+    {"symbol": "^AXNJ", "name": "Industrials"},
+    {"symbol": "^AXIJ", "name": "Info Tech"},
+    {"symbol": "^AXMJ", "name": "Materials"},
+    {"symbol": "^AXRE", "name": "Real Estate"},
+    {"symbol": "^AXUJ", "name": "Utilities"},
+]
+
+
+def ema_series(values: List[float], period: int) -> List[float]:
+    if not values or period <= 1:
+        return list(values)
+    alpha = 2 / (period + 1)
+    out: List[float] = []
+    prev = float(values[0])
+    out.append(prev)
+    for v in values[1:]:
+        prev = alpha * float(v) + (1 - alpha) * prev
+        out.append(prev)
+    return out
+
+
+def rrg_series_jdk(series: List[Dict[str, Any]], bench: List[Dict[str, Any]], short: int = 10, long: int = 30, momN: int = 10) -> List[Dict[str, Any]]:
+    short = max(2, min(60, int(short)))
+    long = max(short + 1, min(120, int(long)))
+    momN = max(2, min(60, int(momN)))
+
+    # align by date string (cheap + robust)
+    mapB = {datetime.fromtimestamp(int(p["t"]) / 1000, tz=ZoneInfo("UTC")).date().isoformat(): p["v"] for p in bench if p.get("v") is not None}
+    ts: List[int] = []
+    rs_vals: List[float] = []
+    for p in series:
+        if p.get("v") is None:
+            continue
+        key = datetime.fromtimestamp(int(p["t"]) / 1000, tz=ZoneInfo("UTC")).date().isoformat()
+        bv = mapB.get(key)
+        if bv is None or bv == 0:
+            continue
+        ts.append(int(p["t"]))
+        rs_vals.append(float(p["v"]) / float(bv))
+
+    if len(rs_vals) < long + momN + 2:
+        return []
+
+    rs_ema_s = ema_series(rs_vals, short)
+    rs_ema_l = ema_series(rs_vals, long)
+    rs_ratio = [100.0 * (rs_ema_s[i] / (rs_ema_l[i] if rs_ema_l[i] else rs_ema_s[i])) for i in range(len(rs_vals))]
+
+    trail: List[Dict[str, Any]] = []
+    for i in range(momN, len(rs_ratio)):
+        x = float(rs_ratio[i])
+        prev = float(rs_ratio[i - momN])
+        y = 100.0 + 100.0 * ((x / prev) - 1.0) if prev != 0 else np.nan
+        trail.append({"t": ts[i], "x": x, "y": y})
+    return trail[-15:]
+
+
+def fetch_series(symbol: str, range_: str, interval: str) -> List[Dict[str, Any]]:
+    hist = fetch_history(symbol, range_, interval)
+    if hist.empty or "Close" not in hist.columns:
+        return []
+    close = pd.to_numeric(hist["Close"], errors="coerce").dropna()
+    if close.empty:
+        return []
+    # yfinance history index is Timestamp; convert to ms epoch
+    out = []
+    for ts, v in close.items():
+        try:
+            t_ms = int(pd.Timestamp(ts).to_pydatetime().replace(tzinfo=ZoneInfo("UTC")).timestamp() * 1000)
+            out.append({"t": t_ms, "v": float(v)})
+        except Exception:
+            continue
+    out.sort(key=lambda p: p["t"])
+    return out
+
+
+def write_rrg_sectors(public_dir: Path, tf: str = "weekly", algo: str = "jdk", short: int = 10, long: int = 30, momN: int = 10, bench: str = "^AXJO") -> Optional[Path]:
+    tf = (tf or "weekly").lower()
+    if tf not in ("daily", "weekly", "monthly"):
+        tf = "weekly"
+    range_ = "6mo" if tf == "daily" else "2y"
+    interval = "1d" if tf == "daily" else ("1wk" if tf == "weekly" else "1mo")
+
+    bench_series = fetch_series(bench, range_, interval)
+    if not bench_series:
+        return None
+
+    series_out = []
+    points_out = []
+    for s in RRG_SECTORS:
+        ser = fetch_series(s["symbol"], range_, interval)
+        if not ser:
+            series_out.append({"symbol": s["symbol"], "name": s["name"], "latest": None, "trail": []})
+            continue
+        trail = rrg_series_jdk(ser, bench_series, short=short, long=long, momN=momN) if algo == "jdk" else []
+        if trail:
+            last = trail[-1]
+            series_out.append({"symbol": s["symbol"], "name": s["name"], "latest": last, "trail": trail})
+            points_out.append({"symbol": s["symbol"], "name": s["name"], "x": last["x"], "y": last["y"]})
+        else:
+            series_out.append({"symbol": s["symbol"], "name": s["name"], "latest": None, "trail": []})
+
+    payload = {
+        "at": datetime.now(ZoneInfo("UTC")).isoformat(timespec="seconds"),
+        "bench": bench,
+        "tf": tf,
+        "algo": algo,
+        "series": series_out,
+        "points": points_out,
+    }
+    out_path = public_dir / "rrg_sectors.json"
+    out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out_path
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Compute intrinsic values + technicals for all ASX tickers and export to Excel/CSV/JSON.")
     ap.add_argument("--scraper", default="scrape_asx_universe.py", help="Path to scrape_asx_universe.py")
@@ -1297,6 +1651,10 @@ def main() -> None:
     ap.add_argument("--history_period", default="1y", help="yfinance history period (default 1y)")
     ap.add_argument("--history_interval", default="1d", help="yfinance history interval (default 1d)")
     ap.add_argument("--disable_technicals", action="store_true", help="Disable technical calculations (faster)")
+    ap.add_argument("--update_mode", default="full", choices=["full", "technicals"], help="full = refresh fundamentals+technicals; technicals = refresh only technicals/price using prior output")
+    ap.add_argument("--no_long_tf", action="store_true", help="Skip weekly/monthly technical overlays (faster)")
+    ap.add_argument("--generate_rrg", action="store_true", help="Write RRG sector dataset to public_dir (rrg_sectors.json)")
+    ap.add_argument("--rrg_tf", default="weekly", choices=["daily","weekly","monthly"], help="RRG timeframe (default weekly)")
     args = ap.parse_args()
 
     scraper_path = Path(args.scraper).resolve()
@@ -1329,46 +1687,95 @@ def main() -> None:
         except Exception:
             benchmark_rets = None
 
+
     progress_csv = Path(args.progress_csv).resolve()
     processed = set()
     rows_out: List[Dict[str, Any]] = []
 
-    if args.resume and progress_csv.exists():
-        try:
-            prev = pd.read_csv(progress_csv)
-            if "Ticker" in prev.columns:
-                processed = set(prev["Ticker"].astype(str).map(normalize_ticker).tolist())
-                rows_out = prev.to_dict(orient="records")
-            print(f"[resume] loaded {len(processed)} processed tickers from {progress_csv}")
-        except Exception as e:
-            print(f"[warn] failed to read progress csv; starting fresh: {e}")
+    # Load previous rows for resume / technical-only update mode
+    prev_map: Dict[str, Dict[str, Any]] = {}
+    prev_df: Optional[pd.DataFrame] = None
+
+    def _load_prev() -> None:
+        nonlocal prev_map, prev_df
+        if progress_csv.exists():
+            try:
+                prev_df = pd.read_csv(progress_csv)
+            except Exception:
+                prev_df = None
+        if prev_df is None:
+            # fallback to last published dataset (best effort)
+            fallback_json = Path(args.public_dir).resolve() / "latest.json"
+            if fallback_json.exists():
+                try:
+                    prev_df = pd.read_json(fallback_json)
+                except Exception:
+                    prev_df = None
+            fallback_csv = Path(args.public_dir).resolve() / "latest.csv"
+            if prev_df is None and fallback_csv.exists():
+                try:
+                    prev_df = pd.read_csv(fallback_csv)
+                except Exception:
+                    prev_df = None
+        if prev_df is not None and "Ticker" in prev_df.columns:
+            prev_map = {normalize_ticker(str(r["Ticker"])): r for r in prev_df.to_dict(orient="records")}
+
+    if args.resume or args.update_mode == "technicals":
+        _load_prev()
+
+    if args.resume and progress_csv.exists() and prev_df is not None and "Ticker" in prev_df.columns:
+        processed = set(prev_df["Ticker"].astype(str).map(normalize_ticker).tolist())
+        rows_out = prev_df.to_dict(orient="records")
+        print(f"[resume] loaded {len(processed)} processed tickers from {progress_csv}")
+
+    include_long_tf = not bool(args.no_long_tf)
 
     t0 = time.time()
+
+    if args.update_mode == "technicals":
+        # Technical-only refresh: rebuild rows from previous output, updating price/technicals and re-running scoring.
+        if not prev_map:
+            print("[warn] update_mode=technicals but no previous dataset found; falling back to full refresh.")
+        else:
+            print(f"[mode] technicals-only refresh using prior rows: {len(prev_map)}")
+
     for i, u in enumerate(universe, start=1):
-        if u.ticker in processed:
-            continue
+        # In technical-only mode we still iterate the universe so new tickers get pulled in.
+        prev_row = prev_map.get(u.ticker)
 
-        print(f"[{i}/{len(universe)}] {u.ticker}")
-        try:
-            r = fetch_one(
-                u.ticker, u,
-                benchmark_rets=benchmark_rets,
-                history_period=args.history_period,
-                history_interval=args.history_interval,
-                disable_technicals=args.disable_technicals
-            )
-            if r is not None:
-                rows_out.append(r)
-                processed.add(u.ticker)
-        except Exception as e:
-            print(f"[warn] {u.ticker} failed: {e}")
+        if args.update_mode == "technicals" and prev_row is not None:
+            print(f"[{i}/{len(universe)}] {u.ticker} (technicals)")
+            try:
+                r = fetch_one_technicals(prev_row, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, include_long_tf=include_long_tf)
+                if r is not None:
+                    rows_out.append(r)
+                    processed.add(u.ticker)
+            except Exception as e:
+                print(f"[warn] {u.ticker} technicals update failed; falling back to full: {e}")
+                try:
+                    r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf)
+                    if r is not None:
+                        rows_out.append(r)
+                        processed.add(u.ticker)
+                except Exception as e2:
+                    print(f"[warn] {u.ticker} failed: {e2}")
+        else:
+            if u.ticker in processed and args.update_mode != "technicals":
+                continue
+            print(f"[{i}/{len(universe)}] {u.ticker}")
+            try:
+                r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf)
+                if r is not None:
+                    rows_out.append(r)
+                    processed.add(u.ticker)
+            except Exception as e:
+                print(f"[warn] {u.ticker} failed: {e}")
 
-        if args.resume and (len(processed) % 50 == 0):
+        if args.resume and args.update_mode != "technicals" and (len(processed) % 50 == 0):
             ensure_parent_dir(progress_csv)
             pd.DataFrame(rows_out).to_csv(progress_csv, index=False)
 
         time.sleep(max(0.0, float(args.sleep)))
-
     dt = time.time() - t0
     print(f"[done] processed={len(processed)} rows in {dt/60.0:.1f} min")
 
@@ -1578,6 +1985,14 @@ def main() -> None:
             except Exception:
                 pass
 
+
+    # RRG sector dataset (used by the web UI)
+    try:
+        if args.generate_rrg:
+            write_rrg_sectors(public_dir, tf=args.rrg_tf, algo="jdk", short=10, long=30, momN=10, bench=args.benchmark)
+    except Exception as e:
+        print(f"[warn] RRG generation failed: {e}")
+
     perth = ZoneInfo("Australia/Perth")
     generated_utc = datetime.now(ZoneInfo("UTC")).isoformat(timespec="seconds")
     generated_perth = datetime.now(perth).isoformat(timespec="seconds")
@@ -1596,6 +2011,7 @@ def main() -> None:
             "csv": "latest.csv",
             "json": "latest.json",
             "parquet": ("latest.parquet" if parquet_ok else None),
+            "rrg_sectors": ("rrg_sectors.json" if (public_dir / "rrg_sectors.json").exists() else None),
         },
     }
     (public_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

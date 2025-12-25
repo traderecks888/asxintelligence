@@ -652,6 +652,8 @@ let scatterChart = null;
 let histChart = null;
 let vqChart = null;
 let divChart = null;
+let rrgChart = null;
+let __rrgPayload = null;
 
 function setMeta(msg){ const el = document.getElementById("meta"); if(el) el.textContent = msg; }
 function showErr(msg){
@@ -1325,6 +1327,7 @@ async function load(){
     try{ bootUI(raw); }catch(e){ throw e; }
     window.__ASX_UI_READY = true;
     setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
+    try{ await loadRRG(); }catch(e){}
   }catch(err){
     console.error(err);
     try{ if(window.__asxFatal) window.__asxFatal("Could not load data", err); }catch(e){}
@@ -1725,6 +1728,12 @@ document.getElementById("preset").addEventListener("change", () => {
   document.getElementById("dl").onclick = () => {
     table.download("csv", "asx_filtered.csv");
   };
+
+  // RRG controls
+  const rrgBtn = document.getElementById("rrgReload");
+  if(rrgBtn) rrgBtn.onclick = () => loadRRG();
+  const rrgTf = document.getElementById("rrgTf");
+  if(rrgTf) rrgTf.onchange = () => loadRRG();
 }
 
 function applyFilters(){
@@ -1991,5 +2000,153 @@ function rebuildCharts(rows){
   }catch(e){ console.warn("Dividend chart error", e); }
 
 }
+
+
+// -------------------------
+// RRG (Relative Rotation Graph)
+// -------------------------
+function quadrantName(x, y){
+  if(!Number.isFinite(x) || !Number.isFinite(y)) return "—";
+  const lead = x >= 100 && y >= 100;
+  const weak = x >= 100 && y < 100;
+  const impr = x < 100 && y >= 100;
+  const lag  = x < 100 && y < 100;
+  if(lead) return "Leading";
+  if(weak) return "Weakening";
+  if(impr) return "Improving";
+  if(lag)  return "Lagging";
+  return "—";
+}
+
+function renderRrgTable(payload){
+  const el = document.getElementById("rrgTable");
+  if(!el) return;
+  const pts = (payload && payload.points) ? payload.points.slice() : [];
+  pts.sort((a,b)=> (b.y - a.y) || (b.x - a.x));
+  const rows = pts.map(p=>{
+    const q = quadrantName(p.x, p.y);
+    const x = Number.isFinite(p.x) ? p.x.toFixed(1) : "—";
+    const y = Number.isFinite(p.y) ? p.y.toFixed(1) : "—";
+    return `<tr><td>${esc(p.name||p.symbol||"")}</td><td>${esc(p.symbol||"")}</td><td>${x}</td><td>${y}</td><td>${q}</td></tr>`;
+  }).join("");
+
+  const note = (payload && payload.at) ? `Updated: ${esc(formatWhen(payload.at))} • Bench: ${esc(payload.bench||"")} • TF: ${esc(payload.tf||"")}` : "";
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+      <small>${note}</small>
+    </div>
+    <div style="overflow:auto;">
+      <table style="border-collapse:collapse;width:100%;min-width:520px;font-size:12px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px 8px;">Sector</th>
+            <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px 8px;">Symbol</th>
+            <th style="text-align:right;border-bottom:1px solid #ddd;padding:6px 8px;">RS-Ratio</th>
+            <th style="text-align:right;border-bottom:1px solid #ddd;padding:6px 8px;">RS-Mom</th>
+            <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px 8px;">Quadrant</th>
+          </tr>
+        </thead>
+        <tbody>${rows || `<tr><td colspan="5" style="padding:8px;"><small>No RRG data yet.</small></td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderRRG(payload){
+  const canvas = document.getElementById("rrg");
+  if(!canvas) return;
+  const pts = (payload && payload.points) ? payload.points : [];
+  const series = (payload && payload.series) ? payload.series : [];
+
+  // Build trail datasets (one per sector), plus a single latest-points dataset for performance.
+  const trailDatasets = series
+    .filter(s => s && Array.isArray(s.trail) && s.trail.length)
+    .map(s => ({
+      type: "line",
+      label: `${s.name || s.symbol} trail`,
+      data: s.trail.map(p => ({x: p.x, y: p.y})),
+      parsing: false,
+      pointRadius: 0,
+      borderWidth: 1,
+      tension: 0.15,
+    }));
+
+  const pointDataset = {
+    type: "scatter",
+    label: "Latest",
+    data: pts.map(p => ({x: p.x, y: p.y, name: p.name, symbol: p.symbol})),
+    parsing: false,
+    pointRadius: 4,
+  };
+
+  const pluginQuadrants = {
+    id: "rrgQuadrants",
+    afterDraw(chart){
+      const {ctx, chartArea, scales} = chart;
+      if(!chartArea) return;
+      const x100 = scales.x.getPixelForValue(100);
+      const y100 = scales.y.getPixelForValue(100);
+      ctx.save();
+      ctx.setLineDash([4,4]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.beginPath();
+      ctx.moveTo(x100, chartArea.top);
+      ctx.lineTo(x100, chartArea.bottom);
+      ctx.moveTo(chartArea.left, y100);
+      ctx.lineTo(chartArea.right, y100);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  if(rrgChart) rrgChart.destroy();
+  rrgChart = new Chart(canvas, {
+    data: { datasets: [...trailDatasets, pointDataset] },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const p = ctx.raw || {};
+              const nm = p.name || ctx.dataset.label || "";
+              const x = Number.isFinite(p.x) ? p.x.toFixed(1) : "—";
+              const y = Number.isFinite(p.y) ? p.y.toFixed(1) : "—";
+              const q = quadrantName(p.x, p.y);
+              return `${nm}: ${x}, ${y} (${q})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: {display:true, text:"RS-Ratio"}, suggestedMin: 85, suggestedMax: 115 },
+        y: { title: {display:true, text:"RS-Momentum"}, suggestedMin: 85, suggestedMax: 115 }
+      }
+    },
+    plugins: [pluginQuadrants]
+  });
+
+  renderRrgTable(payload);
+}
+
+async function loadRRG(){
+  const tfSel = document.getElementById("rrgTf");
+  const tf = tfSel ? tfSel.value : "weekly";
+  try{
+    const payload = await fetchJson(`data/rrg_sectors.json?ts=${Date.now()}`);
+    __rrgPayload = payload;
+    if(payload && payload.tf && tfSel && payload.tf !== tf){
+      // still render, but show a gentle nudge in the table header via updated timestamp line.
+      // (this is a static site; changing TF requires re-running the pipeline)
+    }
+    renderRRG(payload);
+  }catch(e){
+    const el = document.getElementById("rrgTable");
+    if(el) el.innerHTML = `<small>RRG data not found yet. Run the pipeline once (it will write <code>public/data/rrg_sectors.json</code>).</small>`;
+  }
+}
+
 
 load();

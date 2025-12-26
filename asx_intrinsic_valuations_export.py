@@ -1586,40 +1586,159 @@ def fetch_one_technicals(
     include_long_tf: bool = True,
     hist_override: Optional[pd.DataFrame] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Update technicals + price-sensitive valuation deltas without refetching fundamentals."""
+    """
+    Technical-only refresh (fast path).
+
+    IMPORTANT: This function MUST NOT "rebuild" the row schema from scratch, otherwise we risk
+    wiping fundamentals/valuation fields during intraday runs (which makes most UI charts blank).
+
+    Strategy:
+      - Start from the previously exported UI row (prev_row) and preserve all fundamental fields.
+      - Refresh: Price/Market Cap (if possible) + technical indicators.
+      - Recompute only *price-sensitive* derived fields (prem/discount, FCF yield, dividend calc yields, EV, etc.)
+        using the preserved baseline fields from the weekly fundamentals run.
+    """
+    if not isinstance(prev_row, dict):
+        return None
+
     ticker_code = normalize_ticker(str(prev_row.get("Ticker", "")))
     if not ticker_code:
         return None
 
-    base = base_from_prev_row(prev_row, company)
+    # Copy UI row (preserve schema/fundamentals)
+    row: Dict[str, Any] = dict(prev_row)
 
-    sym = yahoo_symbol(ticker_code)
+    # Ensure identity fields are present / up to date
+    row["Ticker"] = ticker_code
+    if company is not None:
+        row["Company"] = row.get("Company") or company.name
+        row["Sector"] = row.get("Sector") or company.sector
+        row["Industry"] = row.get("Industry") or company.industry
+    row["As Of"] = datetime.now().strftime("%Y-%m-%d")
 
-    # If bulk prices are available, prefer them (fewer HTTP requests).
-    hist = hist_override if (isinstance(hist_override, pd.DataFrame) and not hist_override.empty) else fetch_history(sym, history_period, history_interval)
-    if not hist.empty and "Close" in hist.columns:
+    def _f(x):
         try:
-            px = float(pd.to_numeric(hist["Close"], errors="coerce").dropna().iloc[-1])
-            base["currentPrice"] = px
-            # Recompute market cap from shares if possible (keeps charts/filters sensible between weekly fundamental runs)
-            sh = base.get("sharesOutstanding", np.nan)
-            if isinstance(sh, (int, float)) and not np.isnan(sh) and sh > 0 and px > 0:
-                base["marketCap"] = float(sh) * px
+            if x is None:
+                return np.nan
+            v = float(x)
+            return v
+        except Exception:
+            return np.nan
+
+    def _prem(fair_price, px):
+        fair = _f(fair_price)
+        px2 = _f(px)
+        if not np.isfinite(fair) or not np.isfinite(px2) or px2 <= 0:
+            return np.nan
+        return float((fair - px2) / px2)
+
+    # Fetch history (prefer bulk override for speed)
+    sym = yahoo_symbol(ticker_code)
+    hist = hist_override if (isinstance(hist_override, pd.DataFrame) and not hist_override.empty) else fetch_history(sym, history_period, history_interval)
+
+    # Update current price from history (Close)
+    px = _f(row.get("Price"))
+    if hist is not None and not hist.empty and "Close" in hist.columns:
+        try:
+            px_new = float(pd.to_numeric(hist["Close"], errors="coerce").dropna().iloc[-1])
+            if np.isfinite(px_new) and px_new > 0:
+                px = px_new
+                row["Price"] = px
         except Exception:
             pass
 
+    # Long timeframes only if requested
     hist_w = None
     hist_m = None
     if include_long_tf:
-        hist_w = fetch_history(sym, "5y", "1wk")
-        hist_m = fetch_history(sym, "10y", "1mo")
+        try:
+            hist_w = fetch_history(sym, "5y", "1wk")
+        except Exception:
+            hist_w = None
+        try:
+            hist_m = fetch_history(sym, "10y", "1mo")
+        except Exception:
+            hist_m = None
 
+    # Compute technicals (this returns columns with the exact UI names)
     tech = compute_technicals(hist, benchmark_rets=benchmark_rets, weekly_hist=hist_w, monthly_hist=hist_m)
+    # Only overwrite fields when we actually computed a finite value.
+    # This prevents intraday runs with --no_long_tf from wiping weekly/monthly columns (SMA200W, W/M S/R, etc.).
+    for k, v in tech.items():
+        try:
+            if v is None:
+                continue
+            if isinstance(v, (int, float, np.floating)) and (not np.isfinite(float(v))):
+                continue
+        except Exception:
+            pass
+        row[k] = v
 
-    # Refresh valuations that depend on the updated price (and any technical-only updates above)
-    base.update(calc_valuations(base))
+    # ---- Price-sensitive derived fields (keep fundamentals, update deltas) ----
 
-    return build_out_row(base, tech)
+    # Market Cap: if shares outstanding exists, recompute from fresh price
+    sh = _f(row.get("Shares Out"))
+    if np.isfinite(px) and px > 0 and np.isfinite(sh) and sh > 0:
+        row["Market Cap"] = float(sh * px)
+
+    # Net debt + EV (pure arithmetic; keeps downstream charts stable)
+    cash = _f(row.get("Cash"))
+    debt = _f(row.get("Total Debt"))
+    if np.isfinite(debt) or np.isfinite(cash):
+        if not np.isfinite(debt):
+            debt = 0.0
+        if not np.isfinite(cash):
+            cash = 0.0
+        row["Net Debt (Debt - Cash)"] = float(debt - cash)
+
+    mcap = _f(row.get("Market Cap"))
+    if np.isfinite(mcap):
+        ev = mcap
+        if np.isfinite(debt):
+            ev += debt
+        if np.isfinite(cash):
+            ev -= cash
+        row["Enterprise Value (Yahoo/Calc)"] = float(ev)
+
+    # FCF Yield = FCF / Market Cap
+    fcf = _f(row.get("FCF (Yahoo)"))
+    if np.isfinite(fcf) and np.isfinite(mcap) and mcap > 0:
+        row["FCF Yield"] = float(fcf / mcap)
+
+    # Recompute valuation premiums using preserved fair-value columns + updated price
+    row["DCF Premium/(Discount)"] = _prem(row.get("DCF Price (5yr)"), px)
+    row["Residual Income Premium/(Discount)"] = _prem(row.get("Residual Income Price"), px)
+    row["Asset Based Premium/(Discount)"] = _prem(row.get("Asset Based Price"), px)
+    row["SOTP Premium/(Discount)"] = _prem(row.get("SOTP Price"), px)
+    row["Dividend Discount Premium/(Discount)"] = _prem(row.get("Dividend Discount Price"), px)
+    row["EPV Premium/(Discount)"] = _prem(row.get("Earnings Power Value (EPV) Price"), px)
+    row["Option Pricing Premium/(Discount)"] = _prem(row.get("Option Pricing Value"), px)
+
+    # Undervalued methods count (same logic as calc_valuations)
+    prem_keys = [
+        "DCF Premium/(Discount)",
+        "Residual Income Premium/(Discount)",
+        "Asset Based Premium/(Discount)",
+        "SOTP Premium/(Discount)",
+        "Dividend Discount Premium/(Discount)",
+    ]
+    try:
+        row["Undervalued Methods Count"] = int(sum(1 for k in prem_keys if np.isfinite(_f(row.get(k))) and _f(row.get(k)) > 0))
+    except Exception:
+        pass
+
+    # Dividend yield derived from dividend rate / current price
+    div_rate = _f(row.get("Dividend Rate (Yahoo)"))
+    if np.isfinite(div_rate) and np.isfinite(px) and px > 0:
+        calc_y = float(div_rate / px)
+        row["Dividend Yield (Latest, Calc)"] = calc_y
+        # Delta % (Yahoo -> Calc) if Yahoo yield is present
+        y_yahoo = _f(norm_yield(row.get("Dividend Yield (Yahoo)")))
+        if np.isfinite(y_yahoo) and y_yahoo != 0:
+            row["Dividend Yield Δ% (Yahoo→Calc)"] = float((calc_y - y_yahoo) / y_yahoo)
+
+    return row
+
 
 
 # --------------------------------------------------------------------------------------
@@ -2008,14 +2127,9 @@ def main() -> None:
                     rows_out.append(r)
                     processed.add(u.ticker)
             except Exception as e:
-                print(f"[warn] {u.ticker} technicals update failed; falling back to full: {e}")
-                try:
-                    r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf, hist_override=hist_override_u)
-                    if r is not None:
-                        rows_out.append(r)
-                        processed.add(u.ticker)
-                except Exception as e2:
-                    print(f"[warn] {u.ticker} failed: {e2}")
+                print(f"[warn] {u.ticker} technicals update failed; keeping prior row: {e}")
+                rows_out.append(prev_row)
+                processed.add(u.ticker)
         else:
             if u.ticker in processed and args.update_mode != "technicals":
                 continue

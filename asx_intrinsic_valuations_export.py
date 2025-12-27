@@ -988,6 +988,121 @@ def load_universe(universe_csv: Path) -> List[UniverseRow]:
     return rows
 
 
+
+
+# --------------------------------------------------------------------------------------
+# GICS Sector normalization (official 11-sector roll-up)
+# --------------------------------------------------------------------------------------
+
+GICS_SECTORS_11: List[str] = [
+    "Energy",
+    "Materials",
+    "Industrials",
+    "Consumer Discretionary",
+    "Consumer Staples",
+    "Health Care",
+    "Financials",
+    "Information Technology",
+    "Communication Services",
+    "Utilities",
+    "Real Estate",
+]
+
+_GICS_DIRECT_MAP = {
+    # Common provider sector labels -> official GICS sector
+    "energy": "Energy",
+    "materials": "Materials",
+    "basic materials": "Materials",
+    "industrials": "Industrials",
+    "industrial": "Industrials",
+    "consumer discretionary": "Consumer Discretionary",
+    "consumer cyclical": "Consumer Discretionary",
+    "consumer staples": "Consumer Staples",
+    "consumer defensive": "Consumer Staples",
+    "health care": "Health Care",
+    "healthcare": "Health Care",
+    "financials": "Financials",
+    "financial services": "Financials",
+    "information technology": "Information Technology",
+    "technology": "Information Technology",
+    "communication services": "Communication Services",
+    "communication": "Communication Services",
+    "telecommunication services": "Communication Services",
+    "utilities": "Utilities",
+    "real estate": "Real Estate",
+}
+
+_GARBAGE_CLASS_VALUES = {
+    "",
+    "-",
+    "—",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "unknown",
+    "not applicable",
+    "not applic",
+    "classification pending",
+    "class pending",
+}
+
+# Keyword heuristics for industry/industry-group text (still deterministic)
+_INDUSTRY_KEYWORDS: List[Tuple[List[str], str]] = [
+    (["reit", "real estate", "property", "realty"], "Real Estate"),
+    (["bank", "banks", "insurance", "capital markets", "diversified financial", "financial"], "Financials"),
+    (["oil", "gas", "energy", "coal", "uranium", "petroleum"], "Energy"),
+    (["mining", "metals", "steel", "aluminium", "gold", "silver", "lithium", "copper", "iron", "chem", "materials"], "Materials"),
+    (["software", "semiconductor", "hardware", "it services", "information technology", "technology"], "Information Technology"),
+    (["telecom", "media", "entertainment", "interactive", "communication"], "Communication Services"),
+    (["utility", "utilities", "electric", "power", "water", "gas utilities"], "Utilities"),
+    (["pharma", "biotech", "biotechnology", "medical", "health"], "Health Care"),
+    (["grocery", "food", "beverage", "household", "staples", "tobacco"], "Consumer Staples"),
+    (["retail", "consumer", "apparel", "automobile", "leisure", "hotel", "restaurant", "discretionary"], "Consumer Discretionary"),
+    (["transport", "logistics", "construction", "machinery", "engineering", "aerospace", "defense", "industrial"], "Industrials"),
+]
+
+
+def _norm_class_str(s: Any) -> str:
+    s = "" if s is None else str(s)
+    s = s.strip().lower()
+    # collapse whitespace
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def gics_sector_rollup(sector: Any, industry: Any) -> str:
+    """Roll up arbitrary sector/industry strings to the official 11 GICS sectors.
+
+    Deterministic mapping only. If we cannot confidently map to an official sector, return "Unknown".
+    """
+    s = _norm_class_str(sector)
+    i = _norm_class_str(industry)
+
+    # Direct canonical match (exact official sectors)
+    for canon in GICS_SECTORS_11:
+        if s == canon.lower() or i == canon.lower():
+            return canon
+
+    if s in _GARBAGE_CLASS_VALUES and i in _GARBAGE_CLASS_VALUES:
+        return "Unknown"
+    if s in _GARBAGE_CLASS_VALUES:
+        s = ""
+    if i in _GARBAGE_CLASS_VALUES:
+        i = ""
+
+    # Provider direct map
+    if s in _GICS_DIRECT_MAP:
+        return _GICS_DIRECT_MAP[s]
+    if i in _GICS_DIRECT_MAP:
+        return _GICS_DIRECT_MAP[i]
+
+    # Keyword rollup
+    for kws, out in _INDUSTRY_KEYWORDS:
+        if any(k in s for k in kws) or any(k in i for k in kws):
+            return out
+
+    return "Unknown"
 def maybe_load_materials_energy(roster_csv: Path) -> Optional[pd.DataFrame]:
     if not roster_csv.exists():
         return None
@@ -1134,6 +1249,7 @@ def build_out_row(base: Dict[str, Any], tech: Dict[str, Any]) -> Dict[str, Any]:
         "Company": base["company_name"],
         "Sector": base["sector"],
         "Industry": base["industry"],
+        "GICS Sector": gics_sector_rollup(base.get("sector"), base.get("industry")),
         "Currency": base["currency"],
         "As Of": base["asof"],
 
@@ -1614,6 +1730,20 @@ def fetch_one_technicals(
         row["Company"] = row.get("Company") or company.name
         row["Sector"] = row.get("Sector") or company.sector
         row["Industry"] = row.get("Industry") or company.industry
+
+    # Stable GICS sector roll-up for filtering (official 11 sectors)
+    try:
+        prev_gics = row.get("GICS Sector")
+        computed_gics = gics_sector_rollup(row.get("Sector"), row.get("Industry"))
+        if computed_gics != "Unknown":
+            row["GICS Sector"] = computed_gics
+        elif prev_gics:
+            row["GICS Sector"] = prev_gics
+        else:
+            row["GICS Sector"] = "Unknown"
+    except Exception:
+        row["GICS Sector"] = row.get("GICS Sector") or "Unknown"
+
     row["As Of"] = datetime.now().strftime("%Y-%m-%d")
 
     def _f(x):
@@ -1706,13 +1836,23 @@ def fetch_one_technicals(
         row["FCF Yield"] = float(fcf / mcap)
 
     # Recompute valuation premiums using preserved fair-value columns + updated price
-    row["DCF Premium/(Discount)"] = _prem(row.get("DCF Price (5yr)"), px)
-    row["Residual Income Premium/(Discount)"] = _prem(row.get("Residual Income Price"), px)
-    row["Asset Based Premium/(Discount)"] = _prem(row.get("Asset Based Price"), px)
-    row["SOTP Premium/(Discount)"] = _prem(row.get("SOTP Price"), px)
-    row["Dividend Discount Premium/(Discount)"] = _prem(row.get("Dividend Discount Price"), px)
-    row["EPV Premium/(Discount)"] = _prem(row.get("Earnings Power Value (EPV) Price"), px)
-    row["Option Pricing Premium/(Discount)"] = _prem(row.get("Option Pricing Value"), px)
+    # Only overwrite when we computed a finite value (prevents intraday NaN wipes).
+    prem_pairs = [
+        ("DCF Premium/(Discount)", "DCF Price (5yr)"),
+        ("Residual Income Premium/(Discount)", "Residual Income Price"),
+        ("Asset Based Premium/(Discount)", "Asset Based Price"),
+        ("SOTP Premium/(Discount)", "SOTP Price"),
+        ("Dividend Discount Premium/(Discount)", "Dividend Discount Price"),
+        ("EPV Premium/(Discount)", "Earnings Power Value (EPV) Price"),
+        ("Option Pricing Premium/(Discount)", "Option Pricing Value"),
+    ]
+    for prem_key, fair_key in prem_pairs:
+        try:
+            v = _prem(row.get(fair_key), px)
+            if np.isfinite(v):
+                row[prem_key] = float(v)
+        except Exception:
+            pass
 
     # Undervalued methods count (same logic as calc_valuations)
     prem_keys = [
@@ -1751,14 +1891,14 @@ def fetch_one_technicals(
 # --------------------------------------------------------------------------------------
 
 RRG_SECTORS = [
-    {"symbol": "^AXTJ", "name": "Communication"},
-    {"symbol": "^AXDJ", "name": "Cons Disc"},
-    {"symbol": "^AXSJ", "name": "Cons Staples"},
+    {"symbol": "^AXTJ", "name": "Communication Services"},
+    {"symbol": "^AXDJ", "name": "Consumer Discretionary"},
+    {"symbol": "^AXSJ", "name": "Consumer Staples"},
     {"symbol": "^AXEJ", "name": "Energy"},
     {"symbol": "^AXFJ", "name": "Financials"},
     {"symbol": "^AXHJ", "name": "Health Care"},
     {"symbol": "^AXNJ", "name": "Industrials"},
-    {"symbol": "^AXIJ", "name": "Info Tech"},
+    {"symbol": "^AXIJ", "name": "Information Technology"},
     {"symbol": "^AXMJ", "name": "Materials"},
     {"symbol": "^AXRE", "name": "Real Estate"},
     {"symbol": "^AXUJ", "name": "Utilities"},
@@ -2270,7 +2410,7 @@ def main() -> None:
 
     # Web-friendly subset (keeps latest.xlsx smaller for Cloudflare Pages)
     WEB_COLS = [
-        "Ticker","Company","Sector","Industry",
+        "Ticker","Company","GICS Sector","Sector","Industry",
         "Price","Market Cap",
         "DCF Price (5yr)","DCF Premium/(Discount)","FCF Yield","Undervalued Methods Count",
         "RSI14","ATR% (14)","Vol (20d, ann)","Max Drawdown (1y)",

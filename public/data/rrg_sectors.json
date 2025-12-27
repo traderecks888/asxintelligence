@@ -1,18 +1,18 @@
 {
-  "at": "2025-12-26T01:02:17+00:00",
+  "at": "2025-12-27T02:54:42+00:00",
   "bench": "^AXJO",
   "sectors": [
     {
       "symbol": "^AXTJ",
-      "name": "Communication"
+      "name": "Communication Services"
     },
     {
       "symbol": "^AXDJ",
-      "name": "Cons Disc"
+      "name": "Consumer Discretionary"
     },
     {
       "symbol": "^AXSJ",
-      "name": "Cons Staples"
+      "name": "Consumer Staples"
     },
     {
       "symbol": "^AXEJ",
@@ -32,7 +32,7 @@
     },
     {
       "symbol": "^AXIJ",
-      "name": "Info Tech"
+      "name": "Information Technology"
     },
     {
       "symbol": "^AXMJ",
@@ -60,7 +60,7 @@
         "series": [
           {
             "symbol": "^AXTJ",
-            "name": "Communication",
+            "name": "Communication Services",
             "latest": {
               "t": 1766534400000,
               "x": 99.13545877793727,
@@ -471,7 +471,7 @@
           },
           {
             "symbol": "^AXDJ",
-            "name": "Cons Disc",
+            "name": "Consumer Discretionary",
             "latest": {
               "t": 1766534400000,
               "x": 99.38875784665122,
@@ -882,7 +882,7 @@
           },
           {
             "symbol": "^AXSJ",
-            "name": "Cons Staples",
+            "name": "Consumer Staples",
             "latest": {
               "t": 1766534400000,
               "x": 99.26792250674275,
@@ -2937,7 +2937,7 @@
           },
           {
             "symbol": "^AXIJ",
-            "name": "Info Tech",
+            "name": "Information Technology",
             "latest": {
               "t": 1766534400000,
               "x": 98.33854899513092,
@@ -4585,7 +4585,7 @@
         "series": [
           {
             "symbol": "^AXTJ",
-            "name": "Communication",
+            "name": "Communication Services",
             "latest": {
               "t": 1766534400000,
               "x": 98.57711360513167,
@@ -4996,7 +4996,7 @@
           },
           {
             "symbol": "^AXDJ",
-            "name": "Cons Disc",
+            "name": "Consumer Discretionary",
             "latest": {
               "t": 1766534400000,
               "x": 99.04671806358776,
@@ -5407,7 +5407,7 @@
           },
           {
             "symbol": "^AXSJ",
-            "name": "Cons Staples",
+            "name": "Consumer Staples",
             "latest": {
               "t": 1766534400000,
               "x": 98.26515974671662,
@@ -7462,7 +7462,7 @@
           },
           {
             "symbol": "^AXIJ",
-            "name": "Info Tech",
+            "name": "Information Technology",
             "latest": {
               "t": 1766534400000,
               "x": 98.4558697971323,
@@ -9119,7 +9119,7 @@
         "series": [
           {
             "symbol": "^AXTJ",
-            "name": "Communication",
+            "name": "Communication Services",
             "latest": {
               "t": 1766361600000,
               "x": 98.22295564296883,
@@ -9530,7 +9530,7 @@
           },
           {
             "symbol": "^AXDJ",
-            "name": "Cons Disc",
+            "name": "Consumer Discretionary",
             "latest": {
               "t": 1766361600000,
               "x": 97.56521907582577,
@@ -9941,7 +9941,7 @@
           },
           {
             "symbol": "^AXSJ",
-            "name": "Cons Staples",
+            "name": "Consumer Staples",
             "latest": {
               "t": 1766361600000,
               "x": 97.96428231234712,
@@ -11996,7 +11996,7 @@
           },
           {
             "symbol": "^AXIJ",
-            "name": "Info Tech",
+            "name": "Information Technology",
             "latest": {
               "t": 1766361600000,
               "x": 90.96357049597523,
@@ -13644,7 +13644,7 @@
         "series": [
           {
             "symbol": "^AXTJ",
-            "name": "Communication",
+            "name": "Communication Services",
             "latest": {
               "t": 1766361600000,
               "x": 96.5326480911,
@@ -14055,7 +14055,7 @@
           },
           {
             "symbol": "^AXDJ",
-            "name": "Cons Disc",
+            "name": "Consumer Discretionary",
             "latest": {
               "t": 1766361600000,
               "x": 96.92184743872897,
@@ -14466,7 +14466,7 @@
           },
           {
             "symbol": "^AXSJ",
-            "name": "Cons Staples",
+            "name": "Consumer Staples",
             "latest": {
               "t": 1766361600000,
               "x": 98.55264820333447,
@@ -16521,7 +16521,7 @@
           },
           {
             "symbol": "^AXIJ",
-            "name": "Info Tech",
+            "name": "Information Technology",
             "latest": {
               "t": 1766361600000,
               "x": 89.58817173171025,
@@ -18178,7 +18178,7 @@
         "series": [
           {
             "symbol": "^AXTJ",
-            "name": "Communication",
+            "name": "Communication Services",
             "latest": {
               "t": 1764547200000,
               "x": 99.37997966773405,
@@ -18464,7 +18464,7 @@
           },
           {
             "symbol": "^AXDJ",
-            "name": "Cons Disc",
+            "name": "Consumer Discretionary",
             "latest": {
               "t": 1764547200000,
               "x": 99.12129571045588,
@@ -18750,7 +18750,7 @@
           },
           {
             "symbol": "^AXSJ",
-            "name": "Cons Staples",
+            "name": "Consumer Staples",
             "latest": {
               "t": 1764547200000,
               "x": 97.7145480504004,
@@ -20180,7 +20180,7 @@
           },
           {
             "symbol": "^AXIJ",
-            "name": "Info Tech",
+            "name": "Information Technology",
             "latest": {
               "t": 1764547200000,
               "x": 95.27447478155267,
@@ -21328,7 +21328,7 @@
         "series": [
           {
             "symbol": "^AXTJ",
-            "name": "Communication",
+            "name": "Communication Services",
             "latest": {
               "t": 1764547200000,
               "x": 94.24251608951381,
@@ -21589,7 +21589,7 @@
           },
           {
             "symbol": "^AXDJ",
-            "name": "Cons Disc",
+            "name": "Consumer Discretionary",
             "latest": {
               "t": 1764547200000,
               "x": 93.71569196648335,
@@ -21850,7 +21850,7 @@
           },
           {
             "symbol": "^AXSJ",
-            "name": "Cons Staples",
+            "name": "Consumer Staples",
             "latest": {
               "t": 1764547200000,
               "x": 93.9008940904169,
@@ -23155,7 +23155,7 @@
           },
           {
             "symbol": "^AXIJ",
-            "name": "Info Tech",
+            "name": "Information Technology",
             "latest": {
               "t": 1764547200000,
               "x": 80.283338986948,

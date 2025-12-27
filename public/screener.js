@@ -508,8 +508,7 @@ function renderScoreDetails(d){
 
   const ticker = esc(d["Ticker"] || d["Code"] || "");
   const company = esc(d["Company"] || d["Name"] || "");
-  const gics = esc(d["GICS Sector"] || "");
-  const industryGroup = esc(d["Sector"] || "");
+  const sector = esc(d["Sector"] || "");
 
   const price = num(d["Price"]);
   const mcap = num(d["Market Cap"]);
@@ -553,7 +552,7 @@ function renderScoreDetails(d){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
       <div>
         <div style="font-size:18px;font-weight:800;">${ticker} <small style="font-weight:500;color:#666;">${company}</small></div>
-        <div><small>${gics ? `GICS: ${gics}` : ""}${(gics && industryGroup) ? " • " : ""}${industryGroup ? `Industry: ${industryGroup}` : ""}</small></div>
+        <div><small>${sector}</small></div>
         <div class="badges">
           ${bestTag ? `<span class="badge">${bestTag}</span>` : ""}
           ${worstTag ? `<span class="badge">${worstTag}</span>` : ""}
@@ -633,15 +632,6 @@ function renderScoreDetails(d){
     </div>
   `;
 
-  try{
-    el.querySelectorAll("tr[data-sector]").forEach(tr=>{
-      tr.onclick = () => {
-        const nm = tr.getAttribute("data-sector");
-        setSelectedGicsSector(nm, "rrgTable");
-      };
-    });
-  }catch(_){ /* no-op */ }
-
   if(hint) hint.textContent = "";
   openDrawer();
   }catch(e){
@@ -664,76 +654,6 @@ let vqChart = null;
 let divChart = null;
 let rrgChart = null;
 let __rrgPayload = null;
-
-const GICS_SECTOR_ORDER = [
-  "Energy",
-  "Materials",
-  "Industrials",
-  "Consumer Discretionary",
-  "Consumer Staples",
-  "Health Care",
-  "Financials",
-  "Information Technology",
-  "Communication Services",
-  "Utilities",
-  "Real Estate",
-  "Unknown",
-];
-
-let selectedGicsSector = null;
-
-function sortGicsSectors(list){
-  const idx = new Map(GICS_SECTOR_ORDER.map((s,i)=>[s,i]));
-  return (list || []).slice().sort((a,b)=>{
-    const ai = idx.has(a) ? idx.get(a) : 999;
-    const bi = idx.has(b) ? idx.get(b) : 999;
-    if(ai !== bi) return ai - bi;
-    return String(a).localeCompare(String(b));
-  });
-}
-
-function renderGicsChip(){
-  const el = document.getElementById("gicsChip");
-  if(!el) return;
-
-  if(selectedGicsSector){
-    el.style.display = "inline-flex";
-    el.innerHTML = `
-      <span style="display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border:1px solid rgba(0,0,0,0.12);border-radius:999px;background:rgba(148,163,184,0.14);font-size:12px;">
-        <span>Sector: ${esc(selectedGicsSector)}</span>
-        <button id="gicsChipClear" title="Clear sector filter" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;opacity:0.75;">×</button>
-      </span>
-    `;
-    const btn = document.getElementById("gicsChipClear");
-    if(btn) btn.onclick = () => setSelectedGicsSector(selectedGicsSector, "chip");
-  }else{
-    el.style.display = "none";
-    el.innerHTML = "";
-  }
-}
-
-function setSelectedGicsSector(sectorName, source){
-  const next = (sectorName === null || sectorName === undefined) ? "" : String(sectorName).trim();
-  const same = (selectedGicsSector && next && selectedGicsSector === next);
-  selectedGicsSector = (same || !next) ? null : next;
-
-  // Sync dropdown (if present)
-  const sel = document.getElementById("sector");
-  if(sel){
-    sel.value = selectedGicsSector || "";
-  }
-
-  // Sync RRG selection state (if loaded)
-  if(window.__rrgState){
-    window.__rrgState.selected = selectedGicsSector;
-  }
-
-  renderGicsChip();
-
-  try{ applyFilters(); }catch(e){ console.warn("applyFilters failed", e); }
-  try{ renderRRG(); }catch(_){ }
-}
-
 
 function setMeta(msg){ const el = document.getElementById("meta"); if(el) el.textContent = msg; }
 function showErr(msg){
@@ -1386,25 +1306,47 @@ function wireSliders(){
   sliderLabel("yMaxV", win.yMax);
 }
 
+
 async function load(){
   try{
     hideErr();
 
+    const ts = Date.now();
+    const withTs = (u) => (u.includes("?") ? (u + "&ts=" + ts) : (u + "?ts=" + ts));
+
+    // NOTE: We intentionally try both relative and absolute paths.
+    // - Relative (data/...) works on GitHub Pages (served under /<repo>/)
+    // - Absolute (/data/...) works on root-hosted deployments
+    const manifestUrls = [withTs("data/manifest.json"), withTs("/data/manifest.json")];
+    const webUrls = [withTs("data/latest_web.json"), withTs("/data/latest_web.json")];
+    const fullUrls = [withTs("data/latest.json"), withTs("/data/latest.json")];
+
     let m = null;
-    try { m = await fetchJson("/data/manifest.json"); } catch(e) {}
+    for(const u of manifestUrls){
+      try{ m = await fetchJson(u); break; }catch(e){}
+    }
     const when = m ? formatWhen(m.generated_at_perth || m.generated_at_local || m.generated_at_utc) : "";
     setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : "Loading dataset…");
 
     let rows = null;
-    try{ rows = await fetchJson("/data/latest_web.json"); }
-    catch(e1){ rows = await fetchJson("/data/latest.json"); }
+    let lastErr = null;
+    for(const u of webUrls){
+      try{ rows = await fetchJson(u); lastErr = null; break; }
+      catch(e){ lastErr = e; }
+    }
+    if(!rows){
+      for(const u of fullUrls){
+        try{ rows = await fetchJson(u); lastErr = null; break; }
+        catch(e){ lastErr = e; }
+      }
+    }
 
     if(!Array.isArray(rows) || rows.length === 0) throw new Error("Dataset loaded but appears empty.");
 
     raw = rows;
     filteredNow = rows;
 
-    try{ bootUI(raw); }catch(e){ throw e; }
+    bootUI(raw);
     window.__ASX_UI_READY = true;
     setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
     try{ await loadRRG(); }catch(e){}
@@ -1412,10 +1354,17 @@ async function load(){
     console.error(err);
     try{ if(window.__asxFatal) window.__asxFatal("Could not load data", err); }catch(e){}
     setMeta("Error loading dataset");
+
+    // Be explicit about the two path styles (GitHub Pages vs root-hosted)
+    const here = window.location.pathname || "";
+    const baseHint = here.includes("/") ? here.replace(/\/[^/]*$/, "/") : "/";
+
     showErr(
       `<strong>Could not load data.</strong><br>` +
-      `Open <code>/data/latest_web.json</code> to confirm it exists, then hard-refresh.<br>` +
-      `<small>${String(err).replaceAll("<","&lt;").replaceAll(">","&gt;")}</small>`
+      `This usually means the data file is missing/empty, or a JS error occurred.<br>` +
+      `Tried: <code>${esc(baseHint + 'data/latest_web.json')}</code> and <code>/data/latest_web.json</code><br>` +
+      `Also check: <code>${esc(baseHint + 'data/manifest.json')}</code> and <code>/data/manifest.json</code><br>` +
+      `<small>${esc(String(err))}</small>`
     );
   }
 }
@@ -1448,12 +1397,12 @@ function updateMacroTiles(rows){
     // Leading sector by median score
     const bySector = {};
     rows.forEach(r=>{
-      const s = r["GICS Sector"] || "Unknown";
-      const sc = Number.isFinite(num(r["__Total_Score"])) ? num(r["__Total_Score"]) : num(r["Screener Score"]);
+      const s = r["Sector"] || "—";
+      const sc = num(r["Screener Score"]);
       if(!Number.isFinite(sc)) return;
       (bySector[s] ||= []).push(sc);
     });
-    let bestSector = "Unknown", bestMed = NaN, bestN = 0;
+    let bestSector = "—", bestMed = NaN, bestN = 0;
     Object.entries(bySector).forEach(([s, arr])=>{
       if(arr.length < 6) return;
       const m = median(arr);
@@ -1509,17 +1458,14 @@ function bootUI(rows){
     throw new Error("UI template mismatch: missing #table element in screener.html");
   }
 
-  const sectors = sortGicsSectors(Array.from(new Set(rows.map(r => (r["GICS Sector"] || "Unknown")).filter(Boolean))));
+  const sectors = Array.from(new Set(rows.map(r => r["GICS Sector"] || r["Sector"]).filter(Boolean))).sort();
   const sel = document.getElementById("sector");
-  if(sel) sel.innerHTML = `<option value="">All GICS sectors</option>` + sectors.map(s=>`<option>${s}</option>`).join("");
-
-  selectedGicsSector = null;
-  renderGicsChip();
+  if(sel) sel.innerHTML = `<option value="">All sectors</option>` + sectors.map(s=>`<option>${s}</option>`).join("");
 
   setText("kpiRows", rows.length.toLocaleString());
   setText("kpiDCF", pct(median(rows.map(r => num(r["DCF Premium/(Discount)"]))))); 
   setText("kpiFCF", pct(median(rows.map(r => num(r["FCF Yield"])))));
-  setText("kpiScore", fmt2(median(out.map(r => num(r["__Total_Score"])))));
+  setText("kpiScore", fmt2(median(rows.map(r => num(r["__Total_Score"])))));
   updateMacroTiles(rows);
 
   table = new Tabulator("#table", {
@@ -1595,8 +1541,8 @@ const s = num(d["Screener Score"]);
     columns: [
       {title:"Ticker", field:"Ticker",  width:90, headerFilter:true},
       {title:"Company", field:"Company",  minWidth:220, headerFilter:true},
-      {title:"GICS Sector", field:"GICS Sector", width:170, headerFilter:true},
-      {title:"Industry Group", field:"Sector", width:190, headerFilter:true},
+      {title:"GICS Sector", field:"GICS Sector", width:180, headerFilter:true},
+      {title:"Industry Group", field:"Sector", width:180, headerFilter:true},
       {title:"FA Strength", field:"__FA_Strength", headerTooltip:"Fundamental strength rating (Very Weak → Very Strong) derived from the Fundamental base score: 45% Value + 30% Quality + 25% Risk + Liquidity bonus (0..10, capped at 100). Falls back to dataset Screener Score if components are missing.", formatter:(c)=>pillHTML(faStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
       {title:"TA Strength", field:"__TA_Strength", headerTooltip:"Technical strength rating (Very Weak → Very Strong) derived from the TA composite (0–100): trend (distance to SMA200D/SMA200W), momentum (RSI14, MACD histogram, Stoch %K), trend strength (ADX14), and Reward:Risk (D/W/M), with penalties for high ATR% and deep 1y drawdown. Designed for timing/regime-fit, not intrinsic value.", formatter:(c)=>pillHTML(taStrength(c.getRow().getData()||{})), sorter:strengthSorter, download:false},
       {title:"FA Score", field:"__FA_Score", formatter:(c)=>fmt2(num(c.getValue())), visible:false, headerTooltip:"Fundamentals base score (0–100): 45% Value + 30% Quality + 25% Risk."},
@@ -1798,29 +1744,15 @@ document.getElementById("preset").addEventListener("change", () => {
     applyFilters();
   });
 
-  const sectorSel = document.getElementById("sector");
-  if(sectorSel){
-    sectorSel.addEventListener("change", () => {
-      selectedGicsSector = sectorSel.value || null;
-      if(window.__rrgState) window.__rrgState.selected = selectedGicsSector;
-      renderGicsChip();
-      applyFilters();
-      try{ renderRRG(); }catch(_){}
-    });
-  }
-
-
   document.getElementById("apply").onclick = applyFilters;
   document.getElementById("reset").onclick = () => {
     document.getElementById("preset").value = "";
     ["q","sector","minMcap","minFcf","minU","minROE","maxND","minDV","maxVol","maxATR","minScore"].forEach(id=>{
       const el = document.getElementById(id); if(el) el.value = "";
     });
-    selectedGicsSector = null;
-    if(window.__rrgState) window.__rrgState.selected = null;
-    renderGicsChip();
-    applyFilters();
-    try{ renderRRG(); }catch(_){}
+    filteredNow = raw;
+    table.setData(raw);
+    rebuildCharts(raw);
   };
 
   document.getElementById("dl").onclick = () => {
@@ -1838,18 +1770,9 @@ document.getElementById("preset").addEventListener("change", () => {
 }
 
 function applyFilters(){
-  if(!table) return;
-
-  const qEl = document.getElementById("q");
-  const q = qEl ? qEl.value.trim().toLowerCase() : "";
-
-  const sectorEl = document.getElementById("sector");
-  const sectorVal = sectorEl ? sectorEl.value : "";
-  selectedGicsSector = sectorVal ? sectorVal : (selectedGicsSector || null);
-  if(sectorEl && sectorEl.value !== (selectedGicsSector || "")){
-    sectorEl.value = selectedGicsSector || "";
-  }
-  renderGicsChip();
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const sector = document.getElementById("sector").value;
+  const sectorSel = selectedGicsSector || sector;
 
   const minMcap = num(document.getElementById("minMcap").value);
   const minFcf  = num(document.getElementById("minFcf").value);
@@ -1862,32 +1785,30 @@ function applyFilters(){
   const maxATR  = num(document.getElementById("maxATR").value);
   const minScore = num(document.getElementById("minScore").value);
 
-  const presetEl = document.getElementById("preset");
-  const preset = presetEl ? presetEl.value : "";
+  const preset = document.getElementById("preset").value;
 
-  table.setFilter((data)=>{
+  const out = raw.filter(r => {
     if(q){
-      const t = String(data["Ticker"]||"").toLowerCase();
-      const c = String(data["Company"]||"").toLowerCase();
+      const t = String(r["Ticker"]||"").toLowerCase();
+      const c = String(r["Company"]||"").toLowerCase();
       if(!t.includes(q) && !c.includes(q)) return false;
     }
-
-    if(selectedGicsSector){
-      const g = String(data["GICS Sector"] || "").trim();
-      if(g !== selectedGicsSector) return false;
+    if(sectorSel){
+      const g = r["GICS Sector"] || r["Sector"] || "Unknown";
+      if(g !== sectorSel) return false;
     }
 
-    const mcap = num(data["Market Cap"]);
-    const fcfy = num(data["FCF Yield"]);
-    const ucnt = num(data["Undervalued Methods Count"]);
-    const roe  = num(data["ROE"]);
-    const nd   = num(data["Net Debt/EBITDA"]);
-    const dv   = num(data["Avg $Vol 20d"]);
-    const vol  = num(data["Vol (20d, ann)"]);
-    const atr  = num(data["ATR% (14)"]);
-    const score = Number.isFinite(num(data["__Total_Score"])) ? num(data["__Total_Score"]) : num(data["Screener Score"]);
-    const rsi = num(data["RSI14"]);
-    const fromHigh = num(data["% From 52W High"]);
+    const mcap = num(r["Market Cap"]);
+    const fcfy = num(r["FCF Yield"]);
+    const ucnt = num(r["Undervalued Methods Count"]);
+    const roe  = num(r["ROE"]);
+    const nd   = num(r["Net Debt/EBITDA"]);
+    const dv   = num(r["Avg $Vol 20d"]);
+    const vol  = num(r["Vol (20d, ann)"]);
+    const atr  = num(r["ATR% (14)"]);
+    const score = num(r["Screener Score"]);
+    const rsi = num(r["RSI14"]);
+    const fromHigh = num(r["% From 52W High"]);
 
     if(Number.isFinite(minMcap) && Number.isFinite(mcap) && mcap < minMcap) return false;
     if(Number.isFinite(minFcf) && Number.isFinite(fcfy) && fcfy < minFcf) return false;
@@ -1908,14 +1829,14 @@ function applyFilters(){
     return true;
   });
 
-  const out = table.getData("active");
   filteredNow = out;
+  table.setData(out);
   rebuildCharts(out);
 
-  setText("kpiRows", out.length.toLocaleString());
-  setText("kpiDCF", pct(median(out.map(r => num(r["DCF Premium/(Discount)"])))));
-  setText("kpiFCF", pct(median(out.map(r => num(r["FCF Yield"])))));
-  setText("kpiScore", fmt2(median(out.map(r => num(r["__Total_Score"])))));
+  document.getElementById("kpiRows").textContent = out.length.toLocaleString();
+  document.getElementById("kpiDCF").textContent = pct(median(out.map(r => num(r["DCF Premium/(Discount)"]))));
+  document.getElementById("kpiFCF").textContent = pct(median(out.map(r => num(r["FCF Yield"]))));
+  document.getElementById("kpiScore").textContent = fmt2(median(out.map(r => num(r["Screener Score"]))));
   updateMacroTiles(out);
 }
 
@@ -1970,8 +1891,8 @@ function rebuildCharts(rows){
   // Sector median screener score (top sectors)
   const bySector = new Map();
   rows.forEach(r=>{
-    const s = r["GICS Sector"] || "Unknown";
-    const sc = Number.isFinite(num(r["__Total_Score"])) ? num(r["__Total_Score"]) : num(r["Screener Score"]);
+    const s = r["Sector"] || "Unknown";
+    const sc = num(r["Screener Score"]);
     if(!Number.isFinite(sc)) return;
     if(!bySector.has(s)) bySector.set(s, []);
     bySector.get(s).push(sc);
@@ -2129,6 +2050,37 @@ function rebuildCharts(rows){
 // -------------------------
 
 let __rrgBundle = null;
+
+// RRG → Screener sticky filter (official GICS sector names)
+let selectedGicsSector = null;
+
+function setSelectedGicsSector(sector){
+  const next = sector || null;
+  if(selectedGicsSector === next) return;
+  selectedGicsSector = next;
+  renderGicsChip();
+  try{ if(window.__ASX_UI_READY) applyFilters(); }catch(e){}
+}
+
+function clearSelectedGicsSector(){
+  selectedGicsSector = null;
+  try{ __rrgState.selected = null; }catch(e){}
+  renderGicsChip();
+  try{ if(window.__ASX_UI_READY) { applyFilters(); renderRRG(); } }catch(e){}
+}
+
+function renderGicsChip(){
+  const el = document.getElementById("gicsChip");
+  if(!el) return;
+  if(!selectedGicsSector){ el.innerHTML = ""; return; }
+  el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:8px;border:1px solid #ddd;border-radius:999px;padding:6px 10px;background:#f8fafc;font-size:12px;">` +
+                 `<strong>Sector:</strong> ${esc(selectedGicsSector)}` +
+                 `<button id="gicsChipX" title="Clear" style="border:none;background:transparent;cursor:pointer;font-size:14px;line-height:1;">×</button>` +
+               `</span>`;
+  const x = document.getElementById("gicsChipX");
+  if(x) x.onclick = () => clearSelectedGicsSector();
+}
+
 let __rrgState = {
   tf: "weekly",
   algo: "jdk",
@@ -2281,9 +2233,16 @@ function rrgRenderLegends(series){
   el.querySelectorAll("button[data-name]").forEach(btn=>{
     btn.onclick = () => {
       const nm = btn.getAttribute("data-name");
-      setSelectedGicsSector(nm, "rrgLegend");
+      rrgToggleSelected(nm);
     };
   });
+}
+
+function rrgToggleSelected(nm){
+  const next = (__rrgState.selected === nm) ? null : nm;
+  __rrgState.selected = next;
+  setSelectedGicsSector(next);
+  renderRRG();
 }
 
 function rrgRenderTable(series, metaNote){
@@ -2294,7 +2253,7 @@ function rrgRenderTable(series, metaNote){
     .map(s=>{
       const x = Number.isFinite(s.latest.x) ? s.latest.x.toFixed(2) : "—";
       const y = Number.isFinite(s.latest.y) ? s.latest.y.toFixed(2) : "—";
-      return `<tr data-sector="${esc(s.name)}" style="cursor:pointer;${(__rrgState.selected === s.name) ? 'background:rgba(148,163,184,0.18);' : ''}">
+      return `<tr data-name="${esc(s.name)}" style="cursor:pointer;${__rrgState.selected===s.name?"background:#f1f5f9;":""}">
         <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(s.name)}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;">${esc(s.symbol||"")}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;">${x}</td>
@@ -2324,17 +2283,15 @@ function rrgRenderTable(series, metaNote){
     </div>
   `;
 
-  // Click-to-filter (sticky toggle)
-  try{
-    el.querySelectorAll("tr[data-sector]").forEach(tr=>{
-      tr.onclick = () => {
-        const nm = tr.getAttribute("data-sector");
-        setSelectedGicsSector(nm, "rrgTable");
-      };
-    });
-  }catch(_){}
-
+  el.querySelectorAll("tr[data-name]").forEach(tr=>{
+    tr.onclick = () => {
+      const nm = tr.getAttribute("data-name");
+      if(!nm) return;
+      rrgToggleSelected(nm);
+    };
+  });
 }
+
 
 function renderRRG(){
   const canvas = document.getElementById("rrg");
@@ -2577,7 +2534,7 @@ function renderRRG(){
         // Only toggle when clicking the "head" (last point) to match the reference UX.
         if(hit.index !== (ds.data.length - 1)) return;
         const name = ds.label;
-        setSelectedGicsSector(name, "rrgChart");
+        rrgToggleSelected(name);
       }
     },
     plugins: [pluginQuadrants, pluginHeadLabels]

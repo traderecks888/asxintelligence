@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <base href="./">
   <title>ASX Intelligence – Screener</title>
 
   <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
@@ -478,7 +479,7 @@
 
       <input id="q" placeholder="Search ticker/company…" style="min-width:240px;">
       <select id="sector"></select>
-      <span id="gicsChip" style="display:none;margin-left:6px;"></span>
+      <span id="gicsChip" style="margin-left:6px;"></span>
 
       <input id="minMcap" type="number" step="1000000" placeholder="Min market cap (AUD)">
       <input id="minFcf" type="number" step="0.01" placeholder="Min FCF yield (e.g. 0.08)">

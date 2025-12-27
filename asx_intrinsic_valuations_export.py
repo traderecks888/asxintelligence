@@ -29,6 +29,7 @@ Fast test
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import math
 import os
@@ -121,6 +122,38 @@ def ensure_parent_dir(p: Path) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
 
 
+def safe_atomic_write(path: Path, data: str, encoding: str = "utf-8") -> None:
+    """Write to a temp file then atomically replace, to avoid partial/corrupt artifacts."""
+    ensure_parent_dir(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(data, encoding=encoding)
+    tmp.replace(path)
+
+
+def safe_write_json_records(df: pd.DataFrame, path: Path) -> None:
+    """Write records JSON and verify it is valid + non-empty before replacing."""
+    if df is None or df.shape[0] <= 0:
+        raise RuntimeError(f"Refusing to write empty dataset: {path}")
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    df.to_json(tmp, orient="records")
+
+    # Validate
+    try:
+        import json as _json
+        payload = _json.loads(tmp.read_text(encoding="utf-8"))
+        if not isinstance(payload, list) or len(payload) <= 0:
+            raise ValueError("records JSON is empty")
+    except Exception as e:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise RuntimeError(f"Invalid JSON written for {path}: {e}")
+
+    tmp.replace(path)
+
+
 def parse_iso(dt_str: str) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(dt_str)
@@ -182,6 +215,114 @@ def normalize_ticker(code: str) -> str:
 
 def yahoo_symbol(code: str) -> str:
     return f"{normalize_ticker(code)}.AX"
+
+
+# --------------------------------------------------------------------------------------
+# GICS Sector normalization (official 11-sector rollup)
+# --------------------------------------------------------------------------------------
+
+GICS_11_SECTORS = [
+    "Energy",
+    "Materials",
+    "Industrials",
+    "Consumer Discretionary",
+    "Consumer Staples",
+    "Health Care",
+    "Financials",
+    "Information Technology",
+    "Communication Services",
+    "Utilities",
+    "Real Estate",
+]
+
+_GICS_GARBAGE = {
+    "", "na", "n/a", "none", "null", "unknown",
+    "not applicable", "not applic", "class pend", "class pending",
+}
+
+_GICS_ALIASES = [
+    ("energy", "Energy"),
+    ("materials", "Materials"),
+    ("basic materials", "Materials"),
+    ("metals", "Materials"),
+    ("mining", "Materials"),
+
+    ("industrials", "Industrials"),
+    ("industrial", "Industrials"),
+    ("capital goods", "Industrials"),
+    ("transportation", "Industrials"),
+
+    ("consumer discretionary", "Consumer Discretionary"),
+    ("consumer cyclical", "Consumer Discretionary"),
+    ("cyclical", "Consumer Discretionary"),
+
+    ("consumer staples", "Consumer Staples"),
+    ("consumer defensive", "Consumer Staples"),
+    ("defensive", "Consumer Staples"),
+
+    ("health care", "Health Care"),
+    ("healthcare", "Health Care"),
+    ("biotechnology", "Health Care"),
+    ("biotech", "Health Care"),
+    ("pharmaceutical", "Health Care"),
+
+    ("financials", "Financials"),
+    ("financial", "Financials"),
+    ("financial services", "Financials"),
+    ("banks", "Financials"),
+    ("insurance", "Financials"),
+
+    ("information technology", "Information Technology"),
+    ("technology", "Information Technology"),
+    ("tech", "Information Technology"),
+    ("software", "Information Technology"),
+
+    ("communication services", "Communication Services"),
+    ("communication", "Communication Services"),
+    ("telecom", "Communication Services"),
+    ("telecommunications", "Communication Services"),
+    ("media", "Communication Services"),
+
+    ("utilities", "Utilities"),
+    ("utility", "Utilities"),
+
+    ("real estate", "Real Estate"),
+    ("reit", "Real Estate"),
+]
+
+
+def _clean_classification(x: str) -> str:
+    s = str(x or "").strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[^a-z0-9\s&/-]", "", s)
+    return s.strip()
+
+
+def normalize_gics_sector(sector: str, industry: str = "") -> str:
+    """Deterministic roll-up to the official 11 GICS sectors.
+
+    Inputs are the existing classification strings (often Yahoo/yfinance-like). We never "invent"
+    new categories—only map to the 11 sectors or return "Unknown".
+    """
+    a = _clean_classification(sector)
+    b = _clean_classification(industry)
+    if a in _GICS_GARBAGE and b in _GICS_GARBAGE:
+        return "Unknown"
+
+    # Exact match / contains mapping (sector first, then industry)
+    for needle, out in _GICS_ALIASES:
+        if needle in a or needle in b:
+            return out
+
+    # A few high-signal fallbacks (industry-only)
+    if any(k in b for k in ["bank", "insurance", "asset management", "capital markets"]):
+        return "Financials"
+    if any(k in b for k in ["oil", "gas", "coal", "uranium", "energy"]):
+        return "Energy"
+    if any(k in b for k in ["reit", "property", "real estate"]):
+        return "Real Estate"
+
+    return "Unknown"
 
 
 # Normal CDF without SciPy: N(x) = 0.5*(1 + erf(x/sqrt(2)))
@@ -988,121 +1129,6 @@ def load_universe(universe_csv: Path) -> List[UniverseRow]:
     return rows
 
 
-
-
-# --------------------------------------------------------------------------------------
-# GICS Sector normalization (official 11-sector roll-up)
-# --------------------------------------------------------------------------------------
-
-GICS_SECTORS_11: List[str] = [
-    "Energy",
-    "Materials",
-    "Industrials",
-    "Consumer Discretionary",
-    "Consumer Staples",
-    "Health Care",
-    "Financials",
-    "Information Technology",
-    "Communication Services",
-    "Utilities",
-    "Real Estate",
-]
-
-_GICS_DIRECT_MAP = {
-    # Common provider sector labels -> official GICS sector
-    "energy": "Energy",
-    "materials": "Materials",
-    "basic materials": "Materials",
-    "industrials": "Industrials",
-    "industrial": "Industrials",
-    "consumer discretionary": "Consumer Discretionary",
-    "consumer cyclical": "Consumer Discretionary",
-    "consumer staples": "Consumer Staples",
-    "consumer defensive": "Consumer Staples",
-    "health care": "Health Care",
-    "healthcare": "Health Care",
-    "financials": "Financials",
-    "financial services": "Financials",
-    "information technology": "Information Technology",
-    "technology": "Information Technology",
-    "communication services": "Communication Services",
-    "communication": "Communication Services",
-    "telecommunication services": "Communication Services",
-    "utilities": "Utilities",
-    "real estate": "Real Estate",
-}
-
-_GARBAGE_CLASS_VALUES = {
-    "",
-    "-",
-    "—",
-    "n/a",
-    "na",
-    "none",
-    "null",
-    "unknown",
-    "not applicable",
-    "not applic",
-    "classification pending",
-    "class pending",
-}
-
-# Keyword heuristics for industry/industry-group text (still deterministic)
-_INDUSTRY_KEYWORDS: List[Tuple[List[str], str]] = [
-    (["reit", "real estate", "property", "realty"], "Real Estate"),
-    (["bank", "banks", "insurance", "capital markets", "diversified financial", "financial"], "Financials"),
-    (["oil", "gas", "energy", "coal", "uranium", "petroleum"], "Energy"),
-    (["mining", "metals", "steel", "aluminium", "gold", "silver", "lithium", "copper", "iron", "chem", "materials"], "Materials"),
-    (["software", "semiconductor", "hardware", "it services", "information technology", "technology"], "Information Technology"),
-    (["telecom", "media", "entertainment", "interactive", "communication"], "Communication Services"),
-    (["utility", "utilities", "electric", "power", "water", "gas utilities"], "Utilities"),
-    (["pharma", "biotech", "biotechnology", "medical", "health"], "Health Care"),
-    (["grocery", "food", "beverage", "household", "staples", "tobacco"], "Consumer Staples"),
-    (["retail", "consumer", "apparel", "automobile", "leisure", "hotel", "restaurant", "discretionary"], "Consumer Discretionary"),
-    (["transport", "logistics", "construction", "machinery", "engineering", "aerospace", "defense", "industrial"], "Industrials"),
-]
-
-
-def _norm_class_str(s: Any) -> str:
-    s = "" if s is None else str(s)
-    s = s.strip().lower()
-    # collapse whitespace
-    s = re.sub(r"\s+", " ", s)
-    return s
-
-
-def gics_sector_rollup(sector: Any, industry: Any) -> str:
-    """Roll up arbitrary sector/industry strings to the official 11 GICS sectors.
-
-    Deterministic mapping only. If we cannot confidently map to an official sector, return "Unknown".
-    """
-    s = _norm_class_str(sector)
-    i = _norm_class_str(industry)
-
-    # Direct canonical match (exact official sectors)
-    for canon in GICS_SECTORS_11:
-        if s == canon.lower() or i == canon.lower():
-            return canon
-
-    if s in _GARBAGE_CLASS_VALUES and i in _GARBAGE_CLASS_VALUES:
-        return "Unknown"
-    if s in _GARBAGE_CLASS_VALUES:
-        s = ""
-    if i in _GARBAGE_CLASS_VALUES:
-        i = ""
-
-    # Provider direct map
-    if s in _GICS_DIRECT_MAP:
-        return _GICS_DIRECT_MAP[s]
-    if i in _GICS_DIRECT_MAP:
-        return _GICS_DIRECT_MAP[i]
-
-    # Keyword rollup
-    for kws, out in _INDUSTRY_KEYWORDS:
-        if any(k in s for k in kws) or any(k in i for k in kws):
-            return out
-
-    return "Unknown"
 def maybe_load_materials_energy(roster_csv: Path) -> Optional[pd.DataFrame]:
     if not roster_csv.exists():
         return None
@@ -1247,9 +1273,9 @@ def build_out_row(base: Dict[str, Any], tech: Dict[str, Any]) -> Dict[str, Any]:
     out_row: Dict[str, Any] = {
         "Ticker": base["ticker"],
         "Company": base["company_name"],
+        "GICS Sector": base.get("gics_sector", normalize_gics_sector(base.get("sector",""), base.get("industry",""))),
         "Sector": base["sector"],
         "Industry": base["industry"],
-        "GICS Sector": gics_sector_rollup(base.get("sector"), base.get("industry")),
         "Currency": base["currency"],
         "As Of": base["asof"],
 
@@ -1459,6 +1485,9 @@ def fetch_one(
         "net_tangible_assets": bs["net_tangible_assets"],
     }
 
+    # Deterministic official GICS roll-up (for consistent filtering / RRG match)
+    base["gics_sector"] = normalize_gics_sector(base.get("sector", ""), base.get("industry", ""))
+
 
     # Fill missing dividend fields from fallback series
     try:
@@ -1508,6 +1537,7 @@ def fetch_one(
     out_row: Dict[str, Any] = {
         "Ticker": base["ticker"],
         "Company": base["company_name"],
+        "GICS Sector": base.get("gics_sector", normalize_gics_sector(base.get("sector",""), base.get("industry",""))),
         "Sector": base["sector"],
         "Industry": base["industry"],
         "Currency": base["currency"],
@@ -1730,21 +1760,16 @@ def fetch_one_technicals(
         row["Company"] = row.get("Company") or company.name
         row["Sector"] = row.get("Sector") or company.sector
         row["Industry"] = row.get("Industry") or company.industry
-
-    # Stable GICS sector roll-up for filtering (official 11 sectors)
-    try:
-        prev_gics = row.get("GICS Sector")
-        computed_gics = gics_sector_rollup(row.get("Sector"), row.get("Industry"))
-        if computed_gics != "Unknown":
-            row["GICS Sector"] = computed_gics
-        elif prev_gics:
-            row["GICS Sector"] = prev_gics
-        else:
-            row["GICS Sector"] = "Unknown"
-    except Exception:
-        row["GICS Sector"] = row.get("GICS Sector") or "Unknown"
-
     row["As Of"] = datetime.now().strftime("%Y-%m-%d")
+
+    # Deterministic GICS rollup (stable across runs; used for RRG → screener filtering)
+    try:
+        g = normalize_gics_sector(row.get("Sector", ""), row.get("Industry", ""))
+        if not row.get("GICS Sector") or str(row.get("GICS Sector")).strip() in ("", "Unknown"):
+            row["GICS Sector"] = g
+    except Exception:
+        if not row.get("GICS Sector"):
+            row["GICS Sector"] = "Unknown"
 
     def _f(x):
         try:
@@ -1836,23 +1861,13 @@ def fetch_one_technicals(
         row["FCF Yield"] = float(fcf / mcap)
 
     # Recompute valuation premiums using preserved fair-value columns + updated price
-    # Only overwrite when we computed a finite value (prevents intraday NaN wipes).
-    prem_pairs = [
-        ("DCF Premium/(Discount)", "DCF Price (5yr)"),
-        ("Residual Income Premium/(Discount)", "Residual Income Price"),
-        ("Asset Based Premium/(Discount)", "Asset Based Price"),
-        ("SOTP Premium/(Discount)", "SOTP Price"),
-        ("Dividend Discount Premium/(Discount)", "Dividend Discount Price"),
-        ("EPV Premium/(Discount)", "Earnings Power Value (EPV) Price"),
-        ("Option Pricing Premium/(Discount)", "Option Pricing Value"),
-    ]
-    for prem_key, fair_key in prem_pairs:
-        try:
-            v = _prem(row.get(fair_key), px)
-            if np.isfinite(v):
-                row[prem_key] = float(v)
-        except Exception:
-            pass
+    row["DCF Premium/(Discount)"] = _prem(row.get("DCF Price (5yr)"), px)
+    row["Residual Income Premium/(Discount)"] = _prem(row.get("Residual Income Price"), px)
+    row["Asset Based Premium/(Discount)"] = _prem(row.get("Asset Based Price"), px)
+    row["SOTP Premium/(Discount)"] = _prem(row.get("SOTP Price"), px)
+    row["Dividend Discount Premium/(Discount)"] = _prem(row.get("Dividend Discount Price"), px)
+    row["EPV Premium/(Discount)"] = _prem(row.get("Earnings Power Value (EPV) Price"), px)
+    row["Option Pricing Premium/(Discount)"] = _prem(row.get("Option Pricing Value"), px)
 
     # Undervalued methods count (same logic as calc_valuations)
     prem_keys = [
@@ -1889,6 +1904,7 @@ def fetch_one_technicals(
 #   - Tail controlled in UI (we export longer trails)
 # - Uses yf.download in bulk for robustness/speed (12 tickers total)
 # --------------------------------------------------------------------------------------
+
 
 RRG_SECTORS = [
     {"symbol": "^AXTJ", "name": "Communication Services"},
@@ -2484,7 +2500,7 @@ def main() -> None:
     web_df = df[[c for c in WEB_COLS if c in df.columns]].copy()
 
     # Web JSON (smaller, used by screener UI)
-    web_df.to_json(public_dir / "latest_web.json", orient="records")
+    safe_write_json_records(web_df, public_dir / "latest_web.json")
 
     latest_xlsx = public_dir / "latest.xlsx"
     with pd.ExcelWriter(latest_xlsx, engine="openpyxl") as writer2:
@@ -2494,7 +2510,7 @@ def main() -> None:
 
     # CSV + JSON (full dataset; UI uses JSON)
     df.to_csv(public_dir / "latest.csv", index=False)
-    df.to_json(public_dir / "latest.json", orient="records")
+    safe_write_json_records(df, public_dir / "latest.json")
 
     # Parquet (optional)
     parquet_path = public_dir / "latest.parquet"
@@ -2538,7 +2554,7 @@ def main() -> None:
             "rrg_sectors": ("rrg_sectors.json" if (public_dir / "rrg_sectors.json").exists() else None),
         },
     }
-    (public_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    safe_atomic_write(public_dir / "manifest.json", json.dumps(manifest, indent=2))
     print(f"[ok] wrote web exports to: {public_dir}")
 
 

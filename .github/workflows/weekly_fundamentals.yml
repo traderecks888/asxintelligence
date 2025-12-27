@@ -84,13 +84,33 @@ jobs:
         run: |
           python asx_intrinsic_valuations_export.py --resume --update_mode full --generate_rrg --rrg_tf all --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
 
-      - name: Smoke check outputs exist
+
+
+      - name: Smoke check outputs valid (non-empty JSON)
         if: steps.holiday.outputs.skip != 'true'
         run: |
-          test -f public/data/manifest.json
-          test -f public/data/latest_web.json
+          set -e
+          ls -la public/data
           test -f public/data/latest.xlsx
-          test -f public/data/rrg_sectors.json
+          test -s public/data/manifest.json
+          test -s public/data/latest_web.json
+          test -s public/data/rrg_sectors.json
+
+          # Validate JSON is parseable and non-empty
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m = json.loads(Path('public/data/manifest.json').read_text(encoding='utf-8'))
+          rows = json.loads(Path('public/data/latest_web.json').read_text(encoding='utf-8'))
+          rrg = json.loads(Path('public/data/rrg_sectors.json').read_text(encoding='utf-8'))
+
+          assert isinstance(rows, list) and len(rows) > 0, 'latest_web.json is empty'
+          assert isinstance(m, dict) and m.get('rows', 0) and int(m.get('rows', 0)) > 0, 'manifest.json missing/invalid rows'
+          # manifest rows should broadly match latest_web rows, but allow some drift
+          assert abs(int(m.get('rows')) - len(rows)) < max(50, int(0.05*len(rows))), f"manifest.rows ({m.get('rows')}) doesn't match latest_web rows ({len(rows)})"
+          assert isinstance(rrg, dict) and (rrg.get('data') or rrg.get('daily') or rrg.get('weekly') or rrg.get('monthly')), 'rrg_sectors.json looks empty'
+          print('Smoke check passed:', {'manifest_rows': m.get('rows'), 'latest_web_rows': len(rows)})
+          PY
 
       - name: Commit updated data (public/data)
         if: success() && steps.holiday.outputs.skip != 'true'

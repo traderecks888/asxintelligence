@@ -1,9 +1,9 @@
 {
-  "generated_at_utc": "2025-12-29T03:36:56+00:00",
-  "generated_at_perth": "2025-12-29T11:36:56+08:00",
-  "generated_at_local": "2025-12-29T03:36:56",
+  "generated_at_utc": "2025-12-29T05:53:59+00:00",
+  "generated_at_perth": "2025-12-29T13:53:59+08:00",
+  "generated_at_local": "2025-12-29T05:53:59",
   "rows": 1851,
-  "columns": 157,
+  "columns": 117,
   "benchmark": "^AXJO",
   "history_period": "1y",
   "history_interval": "1d",

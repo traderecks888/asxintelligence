@@ -1,11 +1,11 @@
 {
-  "generated_at_utc": "2025-12-31T05:54:28+00:00",
-  "generated_at_perth": "2025-12-31T13:54:28+08:00",
-  "generated_at_local": "2025-12-31T05:54:28",
-  "rows": 1851,
-  "columns": 117,
+  "generated_at_utc": "2026-01-01T03:16:53+00:00",
+  "generated_at_perth": "2026-01-01T11:16:53+08:00",
+  "generated_at_local": "2026-01-01T03:16:53",
+  "rows": 1841,
+  "columns": 157,
   "benchmark": "^AXJO",
-  "history_period": "1y",
+  "history_period": "5y",
   "history_interval": "1d",
   "files": {
     "xlsx": "latest.xlsx",

@@ -1,8 +1,8 @@
 {
-  "generated_at_utc": "2026-01-11T03:19:05+00:00",
-  "generated_at_perth": "2026-01-11T11:19:05+08:00",
-  "generated_at_local": "2026-01-11T03:19:05",
-  "rows": 1852,
+  "generated_at_utc": "2026-01-12T03:36:43+00:00",
+  "generated_at_perth": "2026-01-12T11:36:43+08:00",
+  "generated_at_local": "2026-01-12T03:36:43",
+  "rows": 1853,
   "columns": 157,
   "benchmark": "^AXJO",
   "history_period": "1y",

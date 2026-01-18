@@ -2158,7 +2158,7 @@ def main() -> None:
         default=True,
         help="Bulk-download daily OHLCV in chunks via yfinance.download (much faster than per-ticker history)",
     )
-    ap.add_argument("--bulk_chunk_size", type=int, default=250, help="Tickers per yfinance.download request when --bulk_prices is enabled")
+    ap.add_argument("--bulk_chunk_size", type=int, default=75, help="Tickers per yfinance.download request when --bulk_prices is enabled")
     ap.add_argument("--disable_technicals", action="store_true", help="Disable technical calculations (faster)")
     ap.add_argument("--update_mode", default="full", choices=["full", "technicals"], help="full = refresh fundamentals+technicals; technicals = refresh only technicals/price using prior output")
     ap.add_argument("--no_long_tf", action="store_true", help="Skip weekly/monthly technical overlays (faster)")
@@ -2321,6 +2321,20 @@ def main() -> None:
 
     if not rows_out:
         print("[fatal] no data collected; aborting.")
+        sys.exit(2)
+
+    # Fail-fast coverage guardrail.
+    # If upstream data sources (e.g., Yahoo) rate-limit or error out, we may end up with a partial dataset.
+    # For the weekly fundamentals run we prefer to hard-fail rather than publish an incomplete dataset.
+    total_tickers = max(1, len(universe))
+    produced_rows = len(rows_out)
+    coverage = produced_rows / float(total_tickers)
+    if coverage < 0.85:
+        missing = total_tickers - produced_rows
+        print(
+            f"[fatal] row coverage too low: {produced_rows}/{total_tickers} ({coverage:.1%}) "
+            f"< 85% threshold (missing={missing}). Aborting to avoid publishing incomplete data."
+        )
         sys.exit(2)
 
     df = pd.DataFrame(rows_out)

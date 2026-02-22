@@ -581,7 +581,9 @@ def calc_valuations(row: Dict[str, Any]) -> Dict[str, Any]:
 
     asset_price = np.nan
     try:
-        nta = safe_get(row, "net_tangible_assets", np.nan)
+        nta_aud = safe_get(row, "net_tangible_assets_aud", np.nan)
+
+        nta = nta_aud if (not np.isnan(nta_aud)) else safe_get(row, "net_tangible_assets", np.nan)
         if not np.isnan(nta) and not np.isnan(shares_out) and shares_out > 0:
             asset_price = float((float(nta) * (1.0 + float(ASSUMPTIONS["asset_premium"]))) / shares_out)
     except Exception:
@@ -684,12 +686,16 @@ def compute_extra_metrics(info: Dict[str, Any], bs: Dict[str, float], shares_out
     out["book_value_total_yahoo"] = (float(book_ps) * float(shares_out)) if (not np.isnan(book_ps) and not np.isnan(shares_out) and shares_out > 0) else np.nan
 
     equity_bs = np.nan
-    if not np.isnan(bs.get("total_assets", np.nan)) and not np.isnan(bs.get("total_liabilities", np.nan)):
+    if not np.isnan(bs.get("total_assets_aud", np.nan)) and not np.isnan(bs.get("total_liabilities_aud", np.nan)):
+        equity_bs = float(bs["total_assets_aud"]) - float(bs["total_liabilities_aud"])
+    elif not np.isnan(bs.get("total_assets", np.nan)) and not np.isnan(bs.get("total_liabilities", np.nan)):
         equity_bs = float(bs["total_assets"]) - float(bs["total_liabilities"])
     out["book_value_total_bs_equity"] = equity_bs
     out["book_value_per_share_bs_equity"] = (float(equity_bs) / float(shares_out)) if (not np.isnan(equity_bs) and not np.isnan(shares_out) and shares_out > 0) else np.nan
 
-    nta = bs.get("net_tangible_assets", np.nan)
+    nta = bs.get("net_tangible_assets_aud", np.nan)
+    if np.isnan(nta):
+        nta = bs.get("net_tangible_assets", np.nan)
     out["nta_total"] = float(nta) if not np.isnan(nta) else np.nan
     out["nta_per_share"] = (float(nta) / float(shares_out)) if (not np.isnan(nta) and not np.isnan(shares_out) and shares_out > 0) else np.nan
 
@@ -1588,6 +1594,10 @@ def fetch_one(
             "total_assets": safe_get(info, "totalAssets", np.nan),
             "total_liabilities": safe_get(info, "totalLiabilities", np.nan),
             "net_tangible_assets": safe_get(info, "netTangibleAssets", np.nan),
+            # Prefer explicit AUD-converted balance sheet totals when available
+            "total_assets_aud": safe_get(info, "totalAssetsAud", np.nan),
+            "total_liabilities_aud": safe_get(info, "totalLiabilitiesAud", np.nan),
+            "net_tangible_assets_aud": safe_get(info, "netTangibleAssetsAud", np.nan),
         }
 
     current_price = price_override if price_override is not None else safe_get(info, "currentPrice", np.nan)

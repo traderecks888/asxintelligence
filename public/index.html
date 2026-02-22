@@ -2,67 +2,310 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>ASX Intelligence</title>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;margin:32px;max-width:1000px}
-    .grid{display:grid;grid-template-columns:1fr;gap:16px}
-    .card{border:1px solid #ddd;border-radius:14px;padding:16px}
-    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-    a{color:#0b57d0;text-decoration:none}
-    a:hover{text-decoration:underline}
-    .btn{display:inline-block;background:#111;color:#fff;padding:10px 14px;border-radius:12px}
-    code{background:#f2f2f2;padding:2px 6px;border-radius:6px}
-    small{color:#666}
+    :root{
+      --bg:#0b0f19;
+      --panel:#111827;
+      --panel2:#0f172a;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+      --border:rgba(255,255,255,.10);
+      --accent:#7c3aed;
+      --good:#22c55e;
+      --bad:#ef4444;
+      --warn:#f59e0b;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;background:var(--bg);color:var(--text)}
+    a{color:inherit;text-decoration:none}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px 16px 86px}
+
+    .hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 0 10px}
+    .title{font-size:18px;font-weight:800;letter-spacing:.2px}
+    .meta{font-size:12px;color:var(--muted);margin-top:2px}
+    .hdrRight{display:flex;gap:10px;align-items:center}
+    .iconBtn{border:1px solid var(--border);background:rgba(255,255,255,.04);color:inherit;border-radius:12px;padding:8px 10px;cursor:pointer;font-size:13px}
+    .iconBtn:active{transform:translateY(1px)}
+
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    @media (max-width: 860px){ .grid{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width: 520px){ .grid{grid-template-columns:repeat(2,1fr)} }
+
+    .panel{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--border);border-radius:16px;padding:12px}
+    .kLabel{font-size:12px;color:var(--muted)}
+    .kVal{font-size:18px;font-weight:800;margin-top:2px}
+
+    .section{margin-top:12px}
+    .sectionHead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:8px 0}
+    .sectionHead h2{margin:0;font-size:14px;letter-spacing:.2px}
+    .link{font-size:12px;color:var(--muted)}
+
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    @media (max-width: 980px){ .cards{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width: 560px){ .cards{grid-template-columns:1fr} }
+
+    .card{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:16px;padding:12px;overflow:hidden}
+    .cardTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+    .ticker{font-weight:900;font-size:14px;letter-spacing:.4px}
+    .company{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.2;max-height:2.4em;overflow:hidden}
+
+    .chipRow{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    .chip{font-size:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);border-radius:999px;padding:4px 8px;color:var(--muted)}
+
+    .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+    .m{padding:8px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.18)}
+    .m .l{font-size:11px;color:var(--muted)}
+    .m .v{font-size:14px;font-weight:800;margin-top:2px}
+
+    .bar{height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
+    .fill{height:100%;background:var(--accent);width:0%}
+
+    .btnRow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .btn{border:1px solid var(--border);background:rgba(255,255,255,.04);border-radius:14px;padding:10px 12px;font-weight:700;font-size:13px;cursor:pointer}
+
+    details{margin-top:10px}
+    summary{cursor:pointer;color:var(--muted)}
+    ul{margin:10px 0 0 18px;color:var(--muted)}
+    li{margin:6px 0}
+
+    /* privacy */
+    .privacy .num{filter:blur(6px);opacity:.9}
+
+    /* bottom nav */
+    .bottomNav{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+      background:rgba(10,13,22,.92);backdrop-filter: blur(10px);
+      border-top:1px solid rgba(255,255,255,.10);
+      display:grid;grid-template-columns:repeat(4,1fr);gap:10px;z-index:9999}
+    .tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 10px;border-radius:14px;border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.03);color:var(--muted);font-size:11px}
+    .tab strong{font-size:12px;color:var(--text)}
+    .tab.active{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.40)}
   </style>
 </head>
 <body>
-  <h1>ASX Intelligence</h1>
-
-  <div class="grid">
-    <div class="card">
-      <div class="row">
-        <a class="btn" href="/screener.html">Open Visual Screener</a>
-        <small id="meta">Loading dataset info…</small>
+  <div class="wrap" id="top">
+    <header class="hdr">
+      <div>
+        <div class="title">ASX Intelligence</div>
+        <div class="meta" id="meta">Loading…</div>
       </div>
-      <p>This site serves the latest monthly refresh outputs from <code>public/data</code>.</p>
-      <p><small>Lock down with Cloudflare Access (invite-only) before sharing the URL.</small></p>
-    </div>
+      <div class="hdrRight">
+        <button class="iconBtn" id="privacyBtn" title="Toggle privacy">Privacy</button>
+        <a class="iconBtn" href="/screener.html" title="Open screener">Screener</a>
+      </div>
+    </header>
 
-    <div class="card">
-      <h2>Downloads</h2>
+    <section class="grid" aria-label="Quick pulse">
+      <div class="panel"><div class="kLabel">Universe</div><div class="kVal num" id="kpiRows">–</div></div>
+      <div class="panel"><div class="kLabel">Median DCF discount</div><div class="kVal num" id="kpiDCF">–</div></div>
+      <div class="panel"><div class="kLabel">Median FCF yield</div><div class="kVal num" id="kpiFCF">–</div></div>
+      <div class="panel"><div class="kLabel">Median score</div><div class="kVal num" id="kpiScore">–</div></div>
+    </section>
+
+    <section class="section">
+      <div class="sectionHead">
+        <h2>Top opportunities</h2>
+        <a class="link" href="/screener.html">Explore full screener →</a>
+      </div>
+      <div id="topList" class="cards"></div>
+      <div class="btnRow"><button class="btn" id="moreTop" style="display:none;">Load more</button></div>
+    </section>
+
+    <section class="section">
+      <div class="sectionHead">
+        <h2>Momentum snapshot</h2>
+        <span class="link">(sorted by Return 1m)</span>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="sectionHead" style="margin:0 0 8px 0;"><h2 style="font-size:13px;">Leaders</h2></div>
+          <div id="leaders"></div>
+        </div>
+        <div class="card">
+          <div class="sectionHead" style="margin:0 0 8px 0;"><h2 style="font-size:13px;">Laggards</h2></div>
+          <div id="laggards"></div>
+        </div>
+      </div>
+    </section>
+
+    <details class="panel" id="downloads">
+      <summary><strong>Downloads</strong> <span style="color:var(--muted);font-size:12px;">(tap)</span></summary>
       <ul>
-        <li><a href="/data/latest.xlsx">latest.xlsx</a> (Excel – web-friendly subset)</li>
-        <li><a href="/data/latest_full.xlsx">latest_full.xlsx</a> (Excel – full, if available)</li>
-        <li><a href="/data/latest_full.xlsx.zip">latest_full.xlsx.zip</a> (Excel – full (zipped), if workbook is large)</li>
+        <li><a href="/data/latest.xlsx">latest.xlsx</a> (Excel – subset)</li>
+        <li><a href="/data/latest_full.xlsx">latest_full.xlsx</a> (Excel – full)</li>
         <li><a href="/data/latest.csv">latest.csv</a> (CSV)</li>
         <li><a href="/data/latest.json">latest.json</a> (JSON – full)</li>
-        <li><a href="/data/latest_web.json">latest_web.json</a> (JSON – used by screener)</li>
-        <li><a href="/data/latest.parquet">latest.parquet</a> (Parquet, if enabled)</li>
+        <li><a href="/data/latest_web.json">latest_web.json</a> (JSON – screener)</li>
         <li><a href="/data/manifest.json">manifest.json</a> (run metadata)</li>
       </ul>
-    </div>
+    </details>
   </div>
 
+  <nav class="bottomNav" aria-label="Navigation">
+    <a class="tab active" href="/"><strong>Pulse</strong><span>Overview</span></a>
+    <a class="tab" href="/screener.html"><strong>Explore</strong><span>Filters</span></a>
+    <a class="tab" href="/screener.html#rrg"><strong>RRG</strong><span>Sectors</span></a>
+    <a class="tab" href="#downloads"><strong>Files</strong><span>Exports</span></a>
+  </nav>
+
   <script>
-    function fmt(dt){
+    const fmt = {
+      pct:(x)=> Number.isFinite(x) ? (x*100).toFixed(1)+"%" : "–",
+      n2:(x)=> Number.isFinite(x) ? x.toFixed(2) : "–",
+      money:(x)=> Number.isFinite(x) ? x.toFixed(2) : "–",
+      int:(x)=> Number.isFinite(x) ? Math.round(x).toLocaleString() : "–",
+    };
+    function num(x){
+      const n = Number(x);
+      return Number.isFinite(n) ? n : NaN;
+    }
+    function median(a){
+      const b=(a||[]).map(num).filter(Number.isFinite).sort((x,y)=>x-y);
+      if(!b.length) return NaN;
+      const m=Math.floor(b.length/2);
+      return b.length%2?b[m]:(b[m-1]+b[m])/2;
+    }
+    function esc(s){
+      return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+    }
+    function fmtDt(dt){
       try{
-        const d = new Date(dt);
-        return new Intl.DateTimeFormat(undefined,{
-          year:"numeric",month:"short",day:"2-digit",
-          hour:"2-digit",minute:"2-digit"
-        }).format(d);
+        const d=new Date(dt);
+        return new Intl.DateTimeFormat(undefined,{year:"numeric",month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"}).format(d);
       }catch(e){ return dt; }
     }
-    fetch('/data/manifest.json', {cache:'no-store'})
-      .then(r => r.ok ? r.json() : null)
-      .then(m => {
-        if (!m) return;
-        const t = m.generated_at_perth || m.generated_at_local || m.generated_at_utc || "";
-        document.getElementById('meta').textContent =
-          `Last update: ${fmt(t)} • Rows: ${m.rows} • Cols: ${m.columns}`;
-      })
-      .catch(()=>{});
+
+    function cardHtml(r){
+      const t = esc(r["Ticker"]||"");
+      const c = esc(r["Company"]||"");
+      const score = num(r["Screener Score"]);
+      const dcf = num(r["DCF Premium/(Discount)"]);
+      const fcf = num(r["FCF Yield"]);
+      const r1m = num(r["Return 1m"]);
+      const u = num(r["Undervalued Methods Count"]);
+      const price = num(r["Price"]);
+      const barW = Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0;
+
+      const dcfTag = Number.isFinite(dcf) ? (dcf < 0 ? `<span class="chip" style="color:var(--good)">DCF ${(dcf*100).toFixed(1)}%</span>` : `<span class="chip" style="color:var(--bad)">DCF +${(dcf*100).toFixed(1)}%</span>`) : `<span class="chip">DCF –</span>`;
+      const momTag = Number.isFinite(r1m) ? (r1m >= 0 ? `<span class="chip" style="color:var(--good)">1m +${(r1m*100).toFixed(1)}%</span>` : `<span class="chip" style="color:var(--bad)">1m ${(r1m*100).toFixed(1)}%</span>`) : `<span class="chip">1m –</span>`;
+      const uTag = Number.isFinite(u) ? `<span class="chip">U ${Math.round(u)}</span>` : `<span class="chip">U –</span>`;
+
+      return `
+        <div class="card">
+          <div class="cardTop">
+            <div>
+              <div class="ticker">${t} <span class="chip" style="margin-left:6px;">$<span class="num">${Number.isFinite(price)?price.toFixed(2):"–"}</span></span></div>
+              <div class="company">${c}</div>
+            </div>
+            <div style="text-align:right;min-width:86px;">
+              <div class="kLabel">Score</div>
+              <div class="kVal num" style="font-size:16px;">${Number.isFinite(score)?score.toFixed(1):"–"}</div>
+            </div>
+          </div>
+
+          <div class="bar"><div class="fill" style="width:${barW}%;"></div></div>
+
+          <div class="chipRow">
+            ${dcfTag}
+            <span class="chip">FCF <span class="num">${Number.isFinite(fcf)?(fcf*100).toFixed(1)+"%":"–"}</span></span>
+            ${momTag}
+            ${uTag}
+          </div>
+
+          <div class="metrics">
+            <div class="m"><div class="l">DCF disc</div><div class="v num">${Number.isFinite(dcf)?(dcf*100).toFixed(1)+"%":"–"}</div></div>
+            <div class="m"><div class="l">FCF yield</div><div class="v num">${Number.isFinite(fcf)?(fcf*100).toFixed(1)+"%":"–"}</div></div>
+            <div class="m"><div class="l">Return 1m</div><div class="v num">${Number.isFinite(r1m)?(r1m*100).toFixed(1)+"%":"–"}</div></div>
+          </div>
+        </div>`;
+    }
+
+    let __topLimit = 18;
+
+    async function load(){
+      const [manifest, rows] = await Promise.all([
+        fetch('/data/manifest.json', {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch('/data/latest_web.json', {cache:'no-store'}).then(r=>r.ok?r.json():[]).catch(()=>[])
+      ]);
+
+      const metaEl = document.getElementById('meta');
+      if(manifest){
+        const t = manifest.generated_at_perth || manifest.generated_at_local || manifest.generated_at_utc || '';
+        metaEl.textContent = `Last calc: ${fmtDt(t)} • Rows: ${manifest.rows ?? rows.length}`;
+      } else {
+        metaEl.textContent = `Rows: ${rows.length}`;
+      }
+
+      // KPIs
+      document.getElementById('kpiRows').textContent = rows.length.toLocaleString();
+      document.getElementById('kpiDCF').textContent = fmt.pct(median(rows.map(r=>num(r['DCF Premium/(Discount)']))));
+      document.getElementById('kpiFCF').textContent = fmt.pct(median(rows.map(r=>num(r['FCF Yield']))));
+      document.getElementById('kpiScore').textContent = fmt.n2(median(rows.map(r=>num(r['Screener Score']))));
+
+      // Top opps: high score, prefer undervalued count
+      const sorted = rows.slice().sort((a,b)=>{
+        const sb = num(b['Screener Score']);
+        const sa = num(a['Screener Score']);
+        if(sb!==sa) return (sb-sa);
+        return num(b['Undervalued Methods Count']) - num(a['Undervalued Methods Count']);
+      });
+
+      const topList = document.getElementById('topList');
+      function renderTop(){
+        topList.innerHTML = sorted.slice(0, __topLimit).map(cardHtml).join('');
+        const btn = document.getElementById('moreTop');
+        btn.style.display = (__topLimit < sorted.length) ? 'inline-block' : 'none';
+      }
+      renderTop();
+      document.getElementById('moreTop').onclick = ()=>{ __topLimit = Math.min(sorted.length, __topLimit + 18); renderTop(); };
+
+      // Leaders/Laggards by Return 1m
+      const m = rows.filter(r=>Number.isFinite(num(r['Return 1m'])));
+      m.sort((a,b)=>num(b['Return 1m'])-num(a['Return 1m']));
+      const top = m.slice(0, 8);
+      const bot = m.slice(-8).reverse();
+
+      const li = (r)=>{
+        const t=esc(r['Ticker']||'');
+        const c=esc(r['Company']||'');
+        const v=num(r['Return 1m']);
+        const s=num(r['Screener Score']);
+        const sign = v>=0?'+':'';
+        const col = v>=0?'var(--good)':'var(--bad)';
+        return `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);">
+          <div style="min-width:0;">
+            <div style="font-weight:800;">${t} <span style="color:var(--muted);font-weight:600;">${Number.isFinite(s)?s.toFixed(0):''}</span></div>
+            <div style="color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c}</div>
+          </div>
+          <div class="num" style="font-weight:900;color:${col};">${sign}${(v*100).toFixed(1)}%</div>
+        </div>`;
+      };
+
+      document.getElementById('leaders').innerHTML = top.map(li).join('') || `<div style="color:var(--muted);font-size:12px;">No data</div>`;
+      document.getElementById('laggards').innerHTML = bot.map(li).join('') || `<div style="color:var(--muted);font-size:12px;">No data</div>`;
+    }
+
+    // privacy
+    const KEY='asx_privacy';
+    const btn=document.getElementById('privacyBtn');
+    function applyPrivacy(on){
+      document.body.classList.toggle('privacy', !!on);
+      btn.textContent = on ? 'Privacy: ON' : 'Privacy: OFF';
+    }
+    const saved = (localStorage.getItem(KEY)||'') === '1';
+    applyPrivacy(saved);
+    btn.onclick = ()=>{
+      const on = !document.body.classList.contains('privacy');
+      localStorage.setItem(KEY, on ? '1':'0');
+      applyPrivacy(on);
+    };
+
+    load().catch(()=>{
+      const metaEl=document.getElementById('meta');
+      metaEl.textContent='Could not load /data/latest_web.json or /data/manifest.json';
+    });
   </script>
 </body>
 </html>

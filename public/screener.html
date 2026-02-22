@@ -288,14 +288,91 @@
 }
 .btnSmall:hover{ background: rgba(255,255,255,0.12); }
 
+
+/* ==== Mobile-first, low-clutter revamp ==== */
+body{background:#0b0f19;color:#e5e7eb;padding-bottom:86px}
+a{color:#c4b5fd}
+small{color:#9ca3af}
+.pill{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);color:#e5e7eb}
+.card{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03)}
+input,select{background:rgba(255,255,255,.03);color:#e5e7eb;border:1px solid rgba(255,255,255,.12)}
+button.secondary{background:rgba(255,255,255,.03);color:#e5e7eb;border:1px solid rgba(255,255,255,.12)}
+button{border-color:rgba(255,255,255,.12)}
+#err{background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.35)}
+code{background:rgba(255,255,255,.08);color:#e5e7eb}
+
+/* main view segmented control */
+.segMain{display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,.14);border-radius:14px;overflow:hidden}
+.segMain button{border:0;background:rgba(255,255,255,.02);color:#cbd5e1;padding:7px 10px;font-size:12px;cursor:pointer}
+.segMain button.active{background:rgba(124,58,237,.20);color:#fff;font-weight:700}
+.segMain button + button{border-left:1px solid rgba(255,255,255,.10)}
+
+/* cards view */
+.cardsView{display:none;margin-top:10px}
+body[data-main-view="cards"] .cardsView{display:block}
+body[data-main-view="cards"] #table{display:none}
+body[data-main-view="rrg"] #mainGrid{display:none}
+
+/* card grid inside cards view */
+.cardsGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width: 980px){ .cardsGrid{grid-template-columns:repeat(2,1fr)} }
+@media (max-width: 560px){ .cardsGrid{grid-template-columns:1fr} }
+.cCard{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);border-radius:16px;padding:12px;cursor:pointer}
+.cTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.cTicker{font-weight:900;letter-spacing:.4px}
+.cCo{font-size:12px;color:#9ca3af;margin-top:2px;max-height:2.4em;overflow:hidden}
+.cRow{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.cM{border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.18);border-radius:14px;padding:8px}
+.cM .l{font-size:11px;color:#9ca3af}
+.cM .v{font-size:14px;font-weight:800;margin-top:2px}
+.cChips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.cChip{font-size:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.02);border-radius:999px;padding:4px 8px;color:#9ca3af}
+
+/* privacy */
+body.privacy .num{filter:blur(6px);opacity:.9}
+body.privacy #tableArea{filter:blur(6px)}
+body.privacy #tableArea{transition:filter .15s ease}
+
+/* bottom nav */
+.bottomNav{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  background:rgba(10,13,22,.92);backdrop-filter: blur(10px);
+  border-top:1px solid rgba(255,255,255,.10);
+  display:grid;grid-template-columns:repeat(4,1fr);gap:10px;z-index:9999}
+.bottomNav .tab{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 10px;border-radius:14px;border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.03);color:#9ca3af;font-size:11px}
+.bottomNav .tab strong{font-size:12px;color:#e5e7eb}
+.bottomNav .tab.active{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.40)}
+
+/* modal */
+.modal{position:fixed;inset:0;display:none;z-index:10000}
+.modal.show{display:block}
+.modalBackdrop{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.modalSheet{position:absolute;left:0;right:0;bottom:0;max-height:82vh;background:#0f172a;border-top-left-radius:18px;border-top-right-radius:18px;border:1px solid rgba(255,255,255,.12);overflow:hidden}
+.modalHead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.10)}
+.modalTitle{font-weight:900;font-size:14px}
+.modalClose{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#e5e7eb;border-radius:12px;width:34px;height:34px;cursor:pointer;font-size:20px;line-height:30px}
+.modalBody{padding:12px;overflow:auto;max-height:calc(82vh - 56px)}
+
 </style>
 </head>
 
 <body>
-  <div class="topbar">
-    <a href="/" class="pill">← Home</a>
-    <div class="pill"><strong>ASX Visual Screener</strong></div>
-    <small id="meta">Loading…</small>
+  <div class="topbar" style="justify-content:space-between;">
+    <div class="row" style="gap:10px;">
+      <a href="/" class="pill">Pulse</a>
+      <div class="pill"><strong>Explore</strong></div>
+
+      <div class="segMain" id="mainViewSeg" role="tablist" aria-label="Main view">
+        <button type="button" id="viewCards" data-view="cards">Cards</button>
+        <button type="button" id="viewTable" data-view="table" class="active">Table</button>
+        <button type="button" id="viewRRG" data-view="rrg">RRG</button>
+      </div>
+    </div>
+
+    <div class="row" style="gap:10px;">
+      <button type="button" id="privacyBtn" class="btnSmall" title="Toggle privacy">Privacy</button>
+      <small id="meta">Loading…</small>
+    </div>
   </div>
 
   <div id="err"></div>
@@ -306,13 +383,18 @@
     <div class="card"><div><small>Median FCF yield</small></div><div id="kpiFCF" style="font-size:22px;font-weight:700;">–</div></div>
     <div class="card"><div><small>Median Screener score</small></div><div id="kpiScore" style="font-size:22px;font-weight:700;">–</div></div>
   </div>
+
+  <details id="macroDetails" style="margin-top:10px;">
+    <summary><strong>Market snapshot</strong> <small>(tap to expand)</small></summary>
   <div class="macroGrid">
     <div class="card">
       <div><small>Regime</small></div>
       <div id="macroRegime" class="macroVal">–</div>
       <div id="macroRegimeHint" class="macroSub"></div>
     </div>
-    <div class="card">
+    
+  </details>
+<div class="card">
       <div><small>Breadth (1m)</small></div>
       <div id="macroBreadth" class="macroVal">–</div>
       <div class="macroSub">% of stocks up 1m</div>
@@ -341,7 +423,7 @@
 
 
 
-  <details id="chartsDetails" open>
+  <details id="chartsDetails">
     <summary><strong>Charts</strong> <small>(click to collapse/expand)</small></summary>
 <div class="charts">
       <div class="card">
@@ -429,6 +511,8 @@
       </div>
     </div>
 
+<div id="rrgSection">
+
 
 
     
@@ -464,6 +548,8 @@
   <div id="rrgStageLegend" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
   <div id="rrgLegend" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
   <div id="rrgTable" style="margin-top:10px;overflow:auto;"></div>
+</div>
+
 </div>
 
 </details>
@@ -535,6 +621,7 @@
 
 <div id="mainGrid">
       <div id="tableArea">
+        <div id="cardsView" class="cardsView"></div>
         <div id="table"></div>
         <small style="display:block;margin-top:6px;">Default sort: Screener score, then undervalued count, then DCF disc, then FCF yield.</small>
       </div>
@@ -556,6 +643,25 @@
 
 </div>
   </div>
+
+  
+  <div id="cardModal" class="modal" aria-hidden="true">
+    <div class="modalBackdrop" id="modalBackdrop"></div>
+    <div class="modalSheet" role="dialog" aria-modal="true" aria-label="Stock details">
+      <div class="modalHead">
+        <div class="modalTitle" id="modalTitle">Details</div>
+        <button class="modalClose" id="modalClose" title="Close">×</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+    </div>
+  </div>
+
+  <nav class="bottomNav" aria-label="Navigation">
+    <a class="tab" href="/"><strong>Pulse</strong><span>Overview</span></a>
+    <a class="tab active" href="/screener.html"><strong>Explore</strong><span>Filters</span></a>
+    <a class="tab" href="/screener.html#rrg"><strong>RRG</strong><span>Sectors</span></a>
+    <a class="tab" href="/#downloads"><strong>Files</strong><span>Exports</span></a>
+  </nav>
 
   <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -594,7 +700,7 @@
   })();
   </script>
 
-  <script src="/screener.js?v=0.79" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
+  <script src="/screener.js?v=0.80" onerror="window.__asxFatal && window.__asxFatal('Failed to load screener.js', '')"></script>
 
   <div id="macroTip" class="asxTip" style="display:none;"></div>
 </body>

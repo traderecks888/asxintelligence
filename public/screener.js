@@ -1347,6 +1347,7 @@ async function load(){
     filteredNow = rows;
 
     bootUI(raw);
+    try{ if(window.__ASX_MAIN_UX && window.__ASX_MAIN_UX.init) window.__ASX_MAIN_UX.init(); }catch(e){ console.warn(e); }
     window.__ASX_UI_READY = true;
     setMeta(m ? `Last update: ${when} • Rows: ${m.rows}` : `Loaded • Rows: ${raw.length}`);
     try{ await loadRRG(); }catch(e){}
@@ -1753,6 +1754,7 @@ document.getElementById("preset").addEventListener("change", () => {
     filteredNow = raw;
     table.setData(raw);
     rebuildCharts(raw);
+    try{ if(window.__ASX_MAIN_UX && window.__ASX_MAIN_UX.renderCards) window.__ASX_MAIN_UX.renderCards(); }catch(e){}
   };
 
   document.getElementById("dl").onclick = () => {
@@ -1838,6 +1840,7 @@ function applyFilters(){
   document.getElementById("kpiFCF").textContent = pct(median(out.map(r => num(r["FCF Yield"]))));
   document.getElementById("kpiScore").textContent = fmt2(median(out.map(r => num(r["Screener Score"]))));
   updateMacroTiles(out);
+  try{ if(window.__ASX_MAIN_UX && window.__ASX_MAIN_UX.renderCards) window.__ASX_MAIN_UX.renderCards(); }catch(e){}
 }
 
 function rebuildCharts(rows){
@@ -2616,5 +2619,215 @@ async function loadRRG(){
 })();
 
 
+
+
+/* ============================
+   Mobile-first UX (Cards/Table/RRG + Privacy + Modal)
+   ============================ */
+window.__ASX_MAIN_UX = (function(){
+  const KEY_VIEW = "asx_main_view";
+  const KEY_PRIV = "asx_privacy";
+  let cardsLimit = 60;
+
+  function byId(id){ return document.getElementById(id); }
+
+  function setActiveBtn(view){
+    const a = byId("viewCards"), b = byId("viewTable"), c = byId("viewRRG");
+    if(a) a.classList.toggle("active", view==="cards");
+    if(b) b.classList.toggle("active", view==="table");
+    if(c) c.classList.toggle("active", view==="rrg");
+  }
+
+  function setMainView(view, opts){
+    const v = (view==="cards"||view==="table"||view==="rrg") ? view : "table";
+    document.body.dataset.mainView = v;
+    setActiveBtn(v);
+    try{ localStorage.setItem(KEY_VIEW, v); }catch(_){}
+    if(v === "rrg"){
+      const det = byId("chartsDetails");
+      if(det) det.open = true;
+      const el = byId("rrgSection") || byId("rrg");
+      if(el && ((opts && "scroll" in opts) ? opts.scroll : true)){
+        setTimeout(()=>{ try{ el.scrollIntoView({behavior:"smooth", block:"start"}); }catch(_){ el.scrollIntoView(); } }, 50);
+      }
+    }
+    if(v === "cards"){
+      renderCards();
+    }
+  }
+
+  function getDefaultView(){
+    if(String(location.hash||"").toLowerCase() === "#rrg") return "rrg";
+    try{
+      const s = localStorage.getItem(KEY_VIEW);
+      if(s==="cards"||s==="table"||s==="rrg") return s;
+    }catch(_){}
+    return (window.innerWidth <= 720) ? "cards" : "table";
+  }
+
+  function applyPrivacy(on){
+    document.body.classList.toggle("privacy", !!on);
+    const btn = byId("privacyBtn");
+    if(btn) btn.textContent = on ? "Privacy: ON" : "Privacy";
+    try{ localStorage.setItem(KEY_PRIV, on ? "1" : "0"); }catch(_){}
+  }
+
+  function initPrivacy(){
+    const btn = byId("privacyBtn");
+    let on = false;
+    try{ on = (localStorage.getItem(KEY_PRIV)||"") === "1"; }catch(_){}
+    applyPrivacy(on);
+    if(btn){
+      btn.addEventListener("click", ()=>{
+        const now = !document.body.classList.contains("privacy");
+        applyPrivacy(now);
+      });
+    }
+  }
+
+  function metric(label, value){
+    return `<div class="cM"><div class="l">${label}</div><div class="v num">${value}</div></div>`;
+  }
+
+  function cardHtml(r){
+    const t = esc(r["Ticker"]||"");
+    const c = esc(r["Company"]||"");
+    const price = num(r["Price"]);
+    const score = num(r["Screener Score"]);
+    const dcf = num(r["DCF Premium/(Discount)"]);
+    const fcf = num(r["FCF Yield"]);
+    const r1m = num(r["Return 1m"]);
+    const u = num(r["Undervalued Methods Count"]);
+
+    const scoreText = Number.isFinite(score) ? score.toFixed(1) : "–";
+    const priceText = Number.isFinite(price) ? price.toFixed(2) : "–";
+    const dcfText = Number.isFinite(dcf) ? (dcf*100).toFixed(1)+"%" : "–";
+    const fcfText = Number.isFinite(fcf) ? (fcf*100).toFixed(1)+"%" : "–";
+    const r1mText = Number.isFinite(r1m) ? (r1m*100).toFixed(1)+"%" : "–";
+
+    const chips = [
+      Number.isFinite(u) ? `<span class="cChip">U ${Math.round(u)}</span>` : `<span class="cChip">U –</span>`,
+      `<span class="cChip">FCF <span class="num">${fcfText}</span></span>`,
+      `<span class="cChip">DCF <span class="num">${dcfText}</span></span>`,
+    ].join("");
+
+    return `
+      <div class="cCard" role="button" tabindex="0" data-ticker="${t}">
+        <div class="cTop">
+          <div style="min-width:0;">
+            <div class="cTicker">${t} <span class="cChip" style="margin-left:6px;">$<span class="num">${priceText}</span></span></div>
+            <div class="cCo">${c}</div>
+          </div>
+          <div style="text-align:right;min-width:82px;">
+            <div class="l" style="font-size:11px;color:#9ca3af;">Score</div>
+            <div class="v num" style="font-size:16px;font-weight:900;">${scoreText}</div>
+          </div>
+        </div>
+        <div class="cChips">${chips}</div>
+        <div class="cRow">
+          ${metric("DCF disc", dcfText)}
+          ${metric("FCF yield", fcfText)}
+          ${metric("Return 1m", r1mText)}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCards(){
+    const wrap = byId("cardsView");
+    if(!wrap) return;
+
+    const src = (typeof filteredNow !== "undefined" && filteredNow && filteredNow.length) ? filteredNow : (typeof raw !== "undefined" ? raw : []);
+    const sorted = src.slice().sort((a,b)=>{
+      const sb = num(b["Screener Score"]);
+      const sa = num(a["Screener Score"]);
+      if(sb !== sa) return sb - sa;
+      return num(b["Undervalued Methods Count"]) - num(a["Undervalued Methods Count"]);
+    });
+
+    const show = sorted.slice(0, Math.min(cardsLimit, sorted.length));
+    const grid = `<div class="cardsGrid">${show.map(cardHtml).join("")}</div>`;
+    const more = (cardsLimit < sorted.length)
+      ? `<div style="margin-top:10px;display:flex;justify-content:center;"><button id="cardsMore" class="btnSmall">Load more</button></div>`
+      : "";
+
+    wrap.innerHTML = grid + more;
+
+    const btn = byId("cardsMore");
+    if(btn){
+      btn.onclick = ()=>{
+        cardsLimit = Math.min(sorted.length, cardsLimit + 60);
+        renderCards();
+      };
+    }
+
+    wrap.querySelectorAll(".cCard").forEach(el=>{
+      const open = ()=>{
+        const ticker = el.getAttribute("data-ticker") || "";
+        const d = src.find(x => String(x["Ticker"]||"") === ticker) || null;
+        if(d) openModal(d);
+      };
+      el.addEventListener("click", open);
+      el.addEventListener("keydown", (e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); open(); } });
+    });
+  }
+
+  function openModal(d){
+    const modal = byId("cardModal");
+    const body = byId("modalBody");
+    const title = byId("modalTitle");
+    if(!modal || !body) return;
+    try{
+      renderScoreDetails(d);
+      const html = byId("scoreDetailsBody") ? byId("scoreDetailsBody").innerHTML : "";
+      body.innerHTML = html || `<small>No details available.</small>`;
+      const t = d["Ticker"] || "";
+      const c = d["Company"] || "";
+      if(title) title.textContent = `${t} • ${c}`;
+    }catch(e){
+      body.innerHTML = `<small>Could not render details.</small>`;
+    }
+    modal.classList.add("show");
+    modal.setAttribute("aria-hidden","false");
+  }
+
+  function closeModal(){
+    const modal = byId("cardModal");
+    if(!modal) return;
+    modal.classList.remove("show");
+    modal.setAttribute("aria-hidden","true");
+  }
+
+  function initModal(){
+    const b = byId("modalBackdrop");
+    const x = byId("modalClose");
+    if(b) b.onclick = closeModal;
+    if(x) x.onclick = closeModal;
+    document.addEventListener("keydown", (e)=>{ if(e.key === "Escape") closeModal(); });
+  }
+
+  function initViewButtons(){
+    const a = byId("viewCards"), b = byId("viewTable"), c = byId("viewRRG");
+    if(a) a.addEventListener("click", ()=>setMainView("cards"));
+    if(b) b.addEventListener("click", ()=>setMainView("table"));
+    if(c) c.addEventListener("click", ()=>setMainView("rrg"));
+
+    window.addEventListener("hashchange", ()=>{
+      if(String(location.hash||"").toLowerCase() === "#rrg") setMainView("rrg");
+    });
+  }
+
+  function init(){
+    initPrivacy();
+    initModal();
+    initViewButtons();
+    setMainView(getDefaultView(), {scroll:false});
+    if(String(location.hash||"").toLowerCase() === "#rrg"){
+      setMainView("rrg", {scroll:true});
+    }
+  }
+
+  return { init, renderCards, setMainView, applyPrivacy };
+})();
 
 load();

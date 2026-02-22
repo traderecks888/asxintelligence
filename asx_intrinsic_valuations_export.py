@@ -44,6 +44,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Iterable
 
+from urllib.request import urlopen, Request
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -86,9 +87,30 @@ def now_stamp() -> str:
 
 
 def safe_get(d: Dict[str, Any], key: str, default=np.nan):
+    """Safe getter that also flattens common Yahoo-style shapes.
+
+    Handles:
+      - dicts like {"raw": 123, "fmt": "123"}  -> 123
+      - empty dicts {} -> default
+      - strings like "{}" or "[]" -> default
+      - None -> default
+    """
     try:
         v = d.get(key, default)
-        return default if v is None else v
+        if v is None:
+            return default
+        if isinstance(v, str):
+            s = v.strip()
+            if s in ("", "{}", "[]", "null", "None", "nan", "NaN"):
+                return default
+            return v
+        if isinstance(v, dict):
+            if not v:
+                return default
+            if "raw" in v and v["raw"] is not None:
+                return v["raw"]
+            return default
+        return v
     except Exception:
         return default
 
@@ -106,10 +128,31 @@ def norm_yield(v: Any) -> float:
         return np.nan
 
 def epoch_to_date_str(x: Any) -> str:
-    """Convert epoch seconds (Yahoo) to YYYY-MM-DD string."""
+    """Convert common date encodings to YYYY-MM-DD string.
+
+    Supports:
+      - epoch seconds (int/float)
+      - ISO-8601 strings, including trailing 'Z'
+      - date strings like 'YYYY-MM-DD'
+      - placeholders like '{}' / '' / None
+    """
     try:
         if x is None:
             return ""
+        if isinstance(x, str):
+            s = x.strip()
+            if s in ("", "{}", "[]", "null", "None", "nan", "NaN"):
+                return ""
+            s2 = s.replace("Z", "+00:00")
+            try:
+                dt = datetime.fromisoformat(s2)
+                return dt.date().isoformat()
+            except Exception:
+                try:
+                    dt = pd.to_datetime(s2, utc=True).to_pydatetime()
+                    return dt.date().isoformat()
+                except Exception:
+                    return ""
         fx = float(x)
         if np.isnan(fx):
             return ""
@@ -1101,6 +1144,7 @@ def format_sheet(ws) -> None:
 @dataclass
 class UniverseRow:
     ticker: str
+    yahoo_symbol: str = ""
     name: str = ""
     sector: str = ""
     industry: str = ""
@@ -1122,12 +1166,94 @@ def load_universe(universe_csv: Path) -> List[UniverseRow]:
             continue
         rows.append(UniverseRow(
             ticker=t,
+            yahoo_symbol=yahoo_symbol(t),
             name=str(r[_col("name")]) if _col("name") else str(r.get("Company name", "")),
             sector=str(r[_col("sector")]) if _col("sector") else str(r.get("GICS industry group", "")),
             industry=str(r[_col("industry")]) if _col("industry") else str(r.get("Industry group", "")),
         ))
     return rows
 
+
+
+# --------------------------------------------------------------------------------------
+# Public inputs (traderecks999/data) loaders
+# --------------------------------------------------------------------------------------
+
+_YAHOO_SYM_RE = re.compile(r"^[A-Z0-9]+\.[A-Z]+$")
+
+def fetch_json_url(url: str, timeout_s: int = 45) -> Any:
+    req = Request(url, headers={"User-Agent": "asxintelligence/2.0"})
+    with urlopen(req, timeout=timeout_s) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+def load_public_universe(universe_url: str) -> Tuple[List[UniverseRow], Dict[str, Any]]:
+    payload = fetch_json_url(universe_url)
+    meta = {
+        "source": universe_url,
+        "asOfUtc": payload.get("asOfUtc") if isinstance(payload, dict) else None,
+    }
+    items = payload.get("rows") if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+    if not isinstance(items, list):
+        items = []
+    rows: List[UniverseRow] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = normalize_ticker(str(it.get("code","") or it.get("ticker","") or it.get("symbol","")))
+        if not code:
+            continue
+        sym = str(it.get("yahoo_symbol","") or it.get("yahooSymbol","") or it.get("yahoo","")).strip()
+        if not sym:
+            sym = yahoo_symbol(code)
+        rows.append(UniverseRow(
+            ticker=code,
+            yahoo_symbol=sym,
+            name=str(it.get("name","") or ""),
+            sector=str(it.get("sector","") or ""),
+            industry=str(it.get("industry","") or ""),
+        ))
+    return rows, meta
+
+def load_public_prices(prices_url: str) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    payload = fetch_json_url(prices_url)
+    meta = {
+        "source": prices_url,
+        "asOfUtc": payload.get("asOfUtc") if isinstance(payload, dict) else None,
+    }
+    prices = payload.get("prices") if isinstance(payload, dict) else None
+    if not isinstance(prices, dict):
+        prices = {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for sym, rec in prices.items():
+        if not isinstance(sym, str):
+            continue
+        out[sym.strip()] = rec if isinstance(rec, dict) else {}
+    return out, meta
+
+def load_public_fundamentals(fund_url: str) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    payload = fetch_json_url(fund_url)
+    meta = {
+        "source": fund_url,
+        "asOfUtc": payload.get("asOfUtc") if isinstance(payload, dict) else None,
+    }
+    items = payload.get("data") if isinstance(payload, dict) else (payload if isinstance(payload, list) else [])
+    if not isinstance(items, list):
+        items = []
+    out: Dict[str, Dict[str, Any]] = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        sym = it.get("yahoo_symbol") or it.get("yahooSymbol") or it.get("symbol")
+        if not isinstance(sym, str):
+            continue
+        sym = sym.strip()
+        if not _YAHOO_SYM_RE.match(sym):
+            continue
+        out[sym] = it
+    return out, meta
+
+def uni_sym(u: UniverseRow) -> str:
+    return (u.yahoo_symbol or yahoo_symbol(u.ticker))
 
 def maybe_load_materials_energy(roster_csv: Path) -> Optional[pd.DataFrame]:
     if not roster_csv.exists():
@@ -1289,6 +1415,9 @@ def build_out_row(base: Dict[str, Any], tech: Dict[str, Any]) -> Dict[str, Any]:
         "Total Assets": base["total_assets"],
         "Total Liabilities": base["total_liabilities"],
         "NTA": base["net_tangible_assets"],
+        "Total Assets (AUD)": base.get("total_assets_aud", np.nan),
+        "Total Liabilities (AUD)": base.get("total_liabilities_aud", np.nan),
+        "NTA (AUD)": base.get("net_tangible_assets_aud", np.nan),
         "NTA / Share": base.get("nta_per_share", np.nan),
 
         "Book Value (Total, Yahoo)": base.get("book_value_total_yahoo", np.nan),
@@ -1359,6 +1488,9 @@ def build_out_row(base: Dict[str, Any], tech: Dict[str, Any]) -> Dict[str, Any]:
         "Ex-Dividend Date (Yahoo)": epoch_to_date_str(base.get("exDividendDate", np.nan)),
         "Last Dividend Value (Yahoo)": base.get("lastDividendValue", np.nan),
         "Last Dividend Date (Yahoo)": epoch_to_date_str(base.get("lastDividendDate", np.nan)),
+        "Last Dividend Date (AWST)": epoch_to_date_str(base.get("lastDividendDateAwst", "")) if base.get("lastDividendDateAwst") else "",
+        "Last Dividend Date (AWST Date)": str(base.get("lastDividendDateAwstDate", "")) if base.get("lastDividendDateAwstDate") else "",
+        "Last Dividend Value (AUD)": base.get("lastDividendValueAud", np.nan),
 
         # Requested calc: trailing annual dividend rate / latest share price
         "Dividend Yield (Latest, Calc)": (
@@ -1400,12 +1532,22 @@ def fetch_one(
     disable_technicals: bool,
     include_long_tf: bool = True,
     hist_override: Optional[pd.DataFrame] = None,
+    info_override: Optional[Dict[str, Any]] = None,
+    price_override: Optional[float] = None,
+    currency_override: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     sym = yahoo_symbol(ticker_code)
-    t = yf.Ticker(sym)
-    info = try_get_info(t)
-    if not info:
-        return None
+
+    # If info_override is provided, we treat it as a Yahoo-info-like dict sourced from public inputs.
+    # This avoids per-ticker Yahoo fundamentals calls. We still rely on Yahoo history downloads for technicals.
+    t = None
+    if info_override is not None:
+        info = info_override
+    else:
+        t = yf.Ticker(sym)
+        info = try_get_info(t)
+        if not info:
+            return None
 
     # ----------------------------------------------------------------------------------
     # Dividend fallback (Yahoo info fields are often missing for AU tickers)
@@ -1418,6 +1560,8 @@ def fetch_one(
     div_rate_ttm = np.nan
 
     try:
+        if t is None:
+            raise Exception("skip dividends in public inputs mode")
         divs = t.dividends  # pandas Series indexed by date
         if isinstance(divs, pd.Series) and not divs.empty:
             div_last_value = float(divs.iloc[-1])
@@ -1436,9 +1580,17 @@ def fetch_one(
     except Exception:
         pass
 
-    bs = get_balance_sheet_items(t)
+    if t is not None:
+        bs = get_balance_sheet_items(t)
+    else:
+        bs = {
+            "cash": safe_get(info, "totalCash", np.nan),
+            "total_assets": safe_get(info, "totalAssets", np.nan),
+            "total_liabilities": safe_get(info, "totalLiabilities", np.nan),
+            "net_tangible_assets": safe_get(info, "netTangibleAssets", np.nan),
+        }
 
-    current_price = safe_get(info, "currentPrice", np.nan)
+    current_price = price_override if price_override is not None else safe_get(info, "currentPrice", np.nan)
     market_cap = safe_get(info, "marketCap", np.nan)
 
     shares_out = safe_get(info, "sharesOutstanding", np.nan)
@@ -1450,7 +1602,7 @@ def fetch_one(
         "company_name": company.name or safe_get(info, "shortName", ""),
         "sector": company.sector,
         "industry": company.industry,
-        "currency": safe_get(info, "currency", "AUD"),
+        "currency": (currency_override if currency_override is not None else safe_get(info, "currency", "AUD")),
         "asof": datetime.now().strftime("%Y-%m-%d"),
         "currentPrice": current_price,
         "marketCap": market_cap,
@@ -1483,6 +1635,14 @@ def fetch_one(
         "total_assets": bs["total_assets"],
         "total_liabilities": bs["total_liabilities"],
         "net_tangible_assets": bs["net_tangible_assets"],
+        # Optional AUD-denominated balance sheet fields from public inputs
+        "total_assets_aud": safe_get(info, "totalAssetsAud", np.nan),
+        "total_liabilities_aud": safe_get(info, "totalLiabilitiesAud", np.nan),
+        "net_tangible_assets_aud": safe_get(info, "netTangibleAssetsAud", np.nan),
+        # Optional dividend date fields in AWST
+        "lastDividendDateAwst": safe_get(info, "lastDividendDateAwst", ""),
+        "lastDividendDateAwstDate": safe_get(info, "lastDividendDateAwstDate", ""),
+        "lastDividendValueAud": safe_get(info, "lastDividendValueAud", np.nan),
     }
 
     # Deterministic official GICS roll-up (for consistent filtering / RRG match)
@@ -1731,6 +1891,9 @@ def fetch_one_technicals(
     history_interval: str,
     include_long_tf: bool = True,
     hist_override: Optional[pd.DataFrame] = None,
+    info_override: Optional[Dict[str, Any]] = None,
+    price_override: Optional[float] = None,
+    currency_override: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Technical-only refresh (fast path).
@@ -2142,6 +2305,10 @@ def main() -> None:
     ap.add_argument("--universe_max_age_days", type=int, default=30, help="Refresh universe only if older than this many days")
     ap.add_argument("--universe_source", default="auto", choices=["auto", "asx_csv", "marketindex"], help="Universe source")
     ap.add_argument("--universe_sleep", type=float, default=0.5, help="Sleep for fallback crawling (universe script)")
+    ap.add_argument("--inputs_mode", default="yahoo", choices=["yahoo","public"], help="Data inputs mode: yahoo=fetch fundamentals from Yahoo; public=load universe/prices/fundamentals from public JSON URLs")
+    ap.add_argument("--public_universe_url", default="", help="Raw URL to universe_latest.json (public inputs mode)")
+    ap.add_argument("--public_prices_url", default="", help="Raw URL to prices_latest.json (public inputs mode)")
+    ap.add_argument("--public_fundamentals_url", default="", help="Raw URL to fundamentals_latest.json (public inputs mode)")
     ap.add_argument("--materials_energy_csv", default="data/roster/asx_materials_energy_companies.csv", help="Optional join (products/stage) if exists")
     ap.add_argument("--output_xlsx", default="", help="Output Excel path (default: data/valuations/...)")
     ap.add_argument("--public_dir", default="public/data", help="Write latest.* outputs into this directory for Cloudflare Pages")
@@ -2170,19 +2337,47 @@ def main() -> None:
     universe_csv = Path(args.universe_csv).resolve()
     tickers_txt = Path(args.tickers_txt).resolve() if args.tickers_txt else None
 
-    maybe_refresh_universe(
-        scraper_path=scraper_path,
-        universe_csv=universe_csv,
-        tickers_txt=tickers_txt,
-        max_age_days=args.universe_max_age_days,
-        source=args.universe_source,
-        sleep_s=args.universe_sleep,
-    )
+    # Public inputs (traderecks999/data) support
+    inputs_meta: Dict[str, Any] = {}
+    prices_map: Dict[str, Dict[str, Any]] = {}
+    fund_map: Dict[str, Dict[str, Any]] = {}
 
-    universe = load_universe(universe_csv)
-    if args.limit and args.limit > 0:
-        universe = universe[: args.limit]
-    print(f"[info] tickers to process: {len(universe)}")
+    if args.inputs_mode == "public":
+        if not args.public_universe_url:
+            args.public_universe_url = "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/universe_latest.json"
+        if not args.public_prices_url:
+            args.public_prices_url = "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/prices_latest.json"
+        if not args.public_fundamentals_url:
+            args.public_fundamentals_url = "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/fundamentals_latest.json"
+
+        universe, u_meta = load_public_universe(args.public_universe_url)
+        prices_map, p_meta = load_public_prices(args.public_prices_url)
+        fund_map, f_meta = load_public_fundamentals(args.public_fundamentals_url)
+
+        inputs_meta = {
+            "mode": "public",
+            "universe": {**u_meta, "rows": len(universe)},
+            "prices": {**p_meta, "rows": len(prices_map)},
+            "fundamentals": {**f_meta, "rows": len(fund_map)},
+        }
+
+        if args.limit and args.limit > 0:
+            universe = universe[: args.limit]
+        print(f"[info] tickers to process (public inputs): {len(universe)}")
+    else:
+        maybe_refresh_universe(
+            scraper_path=scraper_path,
+            universe_csv=universe_csv,
+            tickers_txt=tickers_txt,
+            max_age_days=args.universe_max_age_days,
+            source=args.universe_source,
+            sleep_s=args.universe_sleep,
+        )
+
+        universe = load_universe(universe_csv)
+        if args.limit and args.limit > 0:
+            universe = universe[: args.limit]
+        print(f"[info] tickers to process: {len(universe)}")
 
     me_df = maybe_load_materials_energy(Path(args.materials_energy_csv).resolve())
 
@@ -2191,7 +2386,7 @@ def main() -> None:
     # ----------------------------------------------------------------------------------
     daily_hist_map: Dict[str, pd.DataFrame] = {}
     if not args.disable_technicals and bool(args.bulk_prices):
-        syms = [yahoo_symbol(u.ticker) for u in universe]
+        syms = [uni_sym(u) for u in universe]
         if args.benchmark:
             syms = syms + [str(args.benchmark)]
         print(f"[info] bulk downloading price history in chunks (n={len(syms)}; chunk={int(args.bulk_chunk_size)})")
@@ -2272,7 +2467,7 @@ def main() -> None:
         # In technical-only mode we still iterate the universe so new tickers get pulled in.
         prev_row = prev_map.get(u.ticker)
 
-        sym_u = yahoo_symbol(u.ticker)
+        sym_u = uni_sym(u)
         hist_override_u = daily_hist_map.get(sym_u) if daily_hist_map else None
 
         if args.update_mode == "technicals" and prev_row is not None:
@@ -2291,7 +2486,14 @@ def main() -> None:
                 continue
             print(f"[{i}/{len(universe)}] {u.ticker}")
             try:
-                r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf, hist_override=hist_override_u)
+                if args.inputs_mode == "public":
+                    finfo = fund_map.get(sym_u, {})
+                    pinfo = prices_map.get(sym_u, {})
+                    px = pinfo.get("price", None)
+                    cur = pinfo.get("currency", None)
+                    r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf, hist_override=hist_override_u, info_override=finfo, price_override=px, currency_override=cur)
+                else:
+                    r = fetch_one(u.ticker, u, benchmark_rets=benchmark_rets, history_period=args.history_period, history_interval=args.history_interval, disable_technicals=args.disable_technicals, include_long_tf=include_long_tf, hist_override=hist_override_u)
                 if r is not None:
                     rows_out.append(r)
                     processed.add(u.ticker)
@@ -2560,6 +2762,7 @@ def main() -> None:
         "benchmark": args.benchmark,
         "history_period": args.history_period,
         "history_interval": args.history_interval,
+        "inputs": inputs_meta if inputs_meta else None,
         "files": {
             "xlsx": "latest.xlsx",
             "csv": "latest.csv",

@@ -40,7 +40,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 47
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -117,9 +117,9 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.debug_fast }}" = "true" ]; then
             echo "Debug-fast mode enabled"
-            python asx_intrinsic_valuations_export.py --update_mode technicals --no_long_tf --generate_rrg --rrg_tf all --universe_max_age_days 30 --public_dir public/data --sleep 0.05 --history_period 1y --benchmark ^AXJO
+            python asx_intrinsic_valuations_export.py --inputs_mode public --public_universe_url "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/universe_latest.json" --public_prices_url "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/prices_latest.json" --public_fundamentals_url "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/fundamentals_latest.json" --update_mode full --no_long_tf --generate_rrg --rrg_tf all --public_dir public/data --sleep 0.05 --history_period 1y --benchmark ^AXJO
           else
-            python asx_intrinsic_valuations_export.py --resume --update_mode technicals --no_long_tf --generate_rrg --rrg_tf all --universe_max_age_days 30 --public_dir public/data --sleep 0.25 --history_period 1y --benchmark ^AXJO
+            python asx_intrinsic_valuations_export.py --resume --inputs_mode public --public_universe_url "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/universe_latest.json" --public_prices_url "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/prices_latest.json" --public_fundamentals_url "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/fundamentals_latest.json" --update_mode full --no_long_tf --generate_rrg --rrg_tf all --public_dir public/data --sleep 0.15 --history_period 1y --benchmark ^AXJO
           fi
 
       - name: Smoke check outputs exist

@@ -1,8 +1,8 @@
 {
-  "generated_at_utc": "2026-05-08T04:59:58+00:00",
-  "generated_at_perth": "2026-05-08T12:59:58+08:00",
-  "generated_at_local": "2026-05-08T04:59:58",
-  "rows": 2270,
+  "generated_at_utc": "2026-05-11T08:50:20+00:00",
+  "generated_at_perth": "2026-05-11T16:50:20+08:00",
+  "generated_at_local": "2026-05-11T08:50:20",
+  "rows": 2269,
   "columns": 157,
   "benchmark": "^AXJO",
   "history_period": "1y",
@@ -11,18 +11,18 @@
     "mode": "public",
     "universe": {
       "source": "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/universe_latest.json",
-      "asOfUtc": "2026-05-04T04:07:29Z",
-      "rows": 2449
+      "asOfUtc": "2026-05-11T04:34:22Z",
+      "rows": 2448
     },
     "prices": {
       "source": "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/prices_latest.json",
-      "asOfUtc": "2026-05-07T08:01:00Z",
-      "rows": 2449
+      "asOfUtc": "2026-05-11T06:04:08Z",
+      "rows": 2448
     },
     "fundamentals": {
       "source": "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/fundamentals_latest.json",
-      "asOfUtc": "2026-05-03T11:42:12Z",
-      "rows": 2450
+      "asOfUtc": "2026-05-10T11:41:01Z",
+      "rows": 2449
     }
   },
   "files": {

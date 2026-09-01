@@ -1,7 +1,7 @@
 {
-  "generated_at_utc": "2026-08-31T11:42:50+00:00",
-  "generated_at_perth": "2026-08-31T19:42:50+08:00",
-  "generated_at_local": "2026-08-31T11:42:50",
+  "generated_at_utc": "2026-09-01T06:54:59+00:00",
+  "generated_at_perth": "2026-09-01T14:54:59+08:00",
+  "generated_at_local": "2026-09-01T06:54:59",
   "rows": 590,
   "columns": 157,
   "benchmark": "^AXJO",
@@ -16,7 +16,7 @@
     },
     "prices": {
       "source": "https://raw.githubusercontent.com/traderecks999/data/refs/heads/main/asx/prices_latest.json",
-      "asOfUtc": "2026-08-31T08:30:33Z",
+      "asOfUtc": "2026-08-31T11:41:27Z",
       "rows": 596
     },
     "fundamentals": {
